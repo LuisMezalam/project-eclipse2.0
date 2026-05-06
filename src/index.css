@@ -1,0 +1,352 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 33% 96%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 199 89% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 262 83% 58%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 220 14% 90%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 142 76% 36%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 85%;
+    --input: 220 13% 85%;
+    --ring: 199 89% 42%;
+
+    --radius: 0.75rem;
+
+    /* Custom colors for visualizations */
+    --chart-normal: 199 89% 48%;
+    --chart-poisson: 262 83% 58%;
+    --chart-gamma: 142 76% 36%;
+    --chart-posterior: 45 93% 47%;
+    --chart-prior: 199 89% 48%;
+    --chart-likelihood: 340 82% 52%;
+    
+    /* Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(40 33% 96%) 0%, hsl(40 20% 92%) 50%, hsl(250 20% 95%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(40 20% 98%) 100%);
+    --gradient-glow: radial-gradient(ellipse at center, hsl(199 89% 48% / 0.1) 0%, transparent 70%);
+
+    /* Typography */
+    --font-display: 'Source Serif 4', Georgia, serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Shadows */
+    --shadow-glow: 0 0 40px hsl(199 89% 48% / 0.15);
+    --shadow-card: 0 4px 24px hsl(220 20% 20% / 0.08);
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 199 89% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 90%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 220 13% 85%;
+    --sidebar-ring: 199 89% 42%;
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 47% 9%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 47% 9%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 199 89% 48%;
+    --primary-foreground: 222 47% 6%;
+
+    --secondary: 262 83% 58%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 142 76% 36%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+    --ring: 199 89% 48%;
+
+    /* Custom colors for visualizations */
+    --chart-normal: 199 89% 48%;
+    --chart-poisson: 262 83% 58%;
+    --chart-gamma: 142 76% 36%;
+    --chart-posterior: 45 93% 47%;
+    --chart-prior: 199 89% 48%;
+    --chart-likelihood: 340 82% 52%;
+    
+    /* Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(222 47% 6%) 0%, hsl(222 47% 12%) 50%, hsl(262 30% 12%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(222 47% 11%) 0%, hsl(222 47% 8%) 100%);
+    --gradient-glow: radial-gradient(ellipse at center, hsl(199 89% 48% / 0.15) 0%, transparent 70%);
+
+    /* Shadows */
+    --shadow-glow: 0 0 40px hsl(199 89% 48% / 0.2);
+    --shadow-card: 0 8px 32px hsl(0 0% 0% / 0.4);
+
+    --sidebar-background: 222 47% 8%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary-foreground: 222 47% 6%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 217 33% 20%;
+    --sidebar-ring: 199 89% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-display);
+    background: var(--gradient-hero);
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    @apply font-semibold tracking-tight;
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply rounded-xl border border-border/50 backdrop-blur-sm p-6;
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-card);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .glass-card:hover {
+    border-color: hsl(var(--border) / 0.7);
+  }
+
+  .glass-card-compact {
+    @apply rounded-lg border border-border/40 backdrop-blur-sm p-4;
+    background: hsl(var(--card));
+  }
+
+  .dark .glass-card-compact {
+    background: hsl(222 47% 8% / 0.8);
+  }
+
+  .glow-effect {
+    position: relative;
+  }
+
+  .glow-effect::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.3), hsl(var(--secondary) / 0.3));
+    border-radius: inherit;
+    z-index: -1;
+    filter: blur(20px);
+    opacity: 0.5;
+  }
+
+  .math-text {
+    font-family: var(--font-display);
+    font-style: italic;
+  }
+
+  .chart-container {
+    @apply rounded-lg overflow-hidden;
+    background: hsl(222 47% 5% / 0.5);
+  }
+
+  /* Enhanced tabs styling */
+  .nav-tabs {
+    @apply flex flex-wrap gap-1 p-1.5 rounded-xl;
+    background: hsl(222 47% 7% / 0.9);
+    border: 1px solid hsl(var(--border) / 0.5);
+  }
+
+  .nav-tab {
+    @apply flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .nav-tab:hover {
+    background: hsl(var(--muted) / 0.5);
+    color: hsl(var(--foreground));
+  }
+
+  .nav-tab[data-state="active"] {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.3);
+  }
+
+  .nav-tab-icon {
+    @apply w-4 h-4 flex-shrink-0;
+  }
+
+  /* Section headers */
+  .section-header {
+    @apply text-xl font-semibold text-foreground mb-4 flex items-center gap-2;
+  }
+
+  .section-subheader {
+    @apply text-sm font-medium text-primary mb-3;
+  }
+
+  /* Parameter group styling */
+  .param-group {
+    @apply space-y-3;
+  }
+
+  .param-label {
+    @apply text-xs text-muted-foreground block mb-1.5;
+  }
+
+  .param-value {
+    @apply font-mono text-foreground;
+  }
+
+  /* Result cards */
+  .result-card {
+    @apply glass-card-compact text-center;
+  }
+
+  .result-label {
+    @apply text-xs text-muted-foreground mb-1;
+  }
+
+  .result-value {
+    @apply text-xl font-bold font-mono text-foreground;
+  }
+
+  .result-value-accent {
+    @apply text-xl font-bold font-mono text-accent;
+  }
+
+  .result-value-primary {
+    @apply text-xl font-bold font-mono text-primary;
+  }
+
+  .result-value-destructive {
+    @apply text-xl font-bold font-mono text-destructive;
+  }
+}
+
+@layer utilities {
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  .animate-draw {
+    animation: draw 2s ease-out forwards;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out;
+  }
+
+  /* Scrollbar styling */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Custom scrollbar for components */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.3);
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes draw {
+  from { stroke-dashoffset: 1000; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* KaTeX theming */
+.katex-container .katex {
+  color: hsl(var(--primary));
+  font-size: 1.1em;
+}
+
+.katex-container .katex .mord,
+.katex-container .katex .mbin,
+.katex-container .katex .mrel,
+.katex-container .katex .mopen,
+.katex-container .katex .mclose,
+.katex-container .katex .mpunct,
+.katex-container .katex .mop {
+  color: inherit;
+}

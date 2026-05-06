@@ -1,0 +1,4 @@
+project_id = "fenrpjvzocfffzpmmbxl"
+
+[functions.design-recommendations]
+verify_jwt = false
