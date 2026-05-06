@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Sparkles, AlertTriangle, CheckCircle, Info, ArrowUp, ArrowDown, Minus } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { isSupabaseConfigured, supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 interface Recommendation {
@@ -49,6 +49,11 @@ export function AIRecommendations({ analysisType, parameters, className = '' }: 
   const [recommendations, setRecommendations] = useState<AIRecommendationsResponse | null>(null);
 
   const getRecommendations = async () => {
+    if (!isSupabaseConfigured || !supabase) {
+      toast.info('AI recommendations require Supabase function configuration.');
+      return;
+    }
+
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('design-recommendations', {
