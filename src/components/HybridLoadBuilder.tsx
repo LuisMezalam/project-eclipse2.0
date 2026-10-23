@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -11,6 +11,7 @@ interface HybridLoadBuilderProps {
   loads: LoadConfig[];
   onLoadsChange: (loads: LoadConfig[]) => void;
   beamLength: number;
+  supportPositions?: number[];
 }
 
 const LOAD_TYPE_LABELS: Record<LoadType, string> = {
@@ -41,34 +42,90 @@ const LOAD_COMBINATIONS = [
   { name: 'Dead + Seismic', factors: [{ loadIndex: 0, factor: 1.0 }, { loadIndex: 1, factor: 1.4 }] },
 ];
 
-export function HybridLoadBuilder({ loads, onLoadsChange, beamLength }: HybridLoadBuilderProps) {
+type LiveLoadPattern = "full-span" | "left-half" | "right-half" | "middle-third" | "alternating-spans" | "moving-point" | "vehicle-train";
+
+const LIVE_LOAD_PATTERNS: { value: LiveLoadPattern; label: string }[] = [
+  { value: "full-span", label: "Uniform full-span load" },
+  { value: "left-half", label: "Left half-span" },
+  { value: "right-half", label: "Right half-span" },
+  { value: "middle-third", label: "Middle third" },
+  { value: "alternating-spans", label: "Alternating support spans" },
+  { value: "moving-point", label: "Moving point load" },
+  { value: "vehicle-train", label: "Vehicle train (equivalent load)" },
+];
+
+export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPositions = [] }: HybridLoadBuilderProps) {
   const [selectedCombination, setSelectedCombination] = useState<string | null>(null);
   const [openLoadIndex, setOpenLoadIndex] = useState<number | null>(0);
   const [animatingLoadIndex, setAnimatingLoadIndex] = useState<number | null>(null);
+  const [liveLoadPattern, setLiveLoadPattern] = useState<LiveLoadPattern>("full-span");
+  const loadsRef = useRef(loads);
+  const onLoadsChangeRef = useRef(onLoadsChange);
+
+  useEffect(() => { loadsRef.current = loads; }, [loads]);
+  useEffect(() => { onLoadsChangeRef.current = onLoadsChange; }, [onLoadsChange]);
 
   // Animation for moving loads
   useEffect(() => {
     if (animatingLoadIndex === null) return;
-    
-    const load = loads[animatingLoadIndex];
-    if (!load || (load.type !== 'moving' && load.type !== 'axle-train')) {
-      setAnimatingLoadIndex(null);
-      return;
-    }
-    
+
     const interval = setInterval(() => {
-      const newLoads = [...loads];
-      const currentStep = newLoads[animatingLoadIndex].movingStep || 0;
+      const currentLoads = loadsRef.current;
+      const load = currentLoads[animatingLoadIndex];
+      if (!load || (load.type !== 'moving' && load.type !== 'axle-train')) {
+        setAnimatingLoadIndex(null);
+        return;
+      }
+      const newLoads = [...currentLoads];
+      const currentStep = load.movingStep ?? 0;
       const nextStep = currentStep + 0.02;
       newLoads[animatingLoadIndex] = { 
-        ...newLoads[animatingLoadIndex], 
+        ...load,
         movingStep: nextStep > 1 ? 0 : nextStep 
       };
-      onLoadsChange(newLoads);
+      loadsRef.current = newLoads;
+      onLoadsChangeRef.current(newLoads);
     }, 50);
     
     return () => clearInterval(interval);
-  }, [animatingLoadIndex, loads, onLoadsChange]);
+  }, [animatingLoadIndex]);
+
+  const addLiveLoadPattern = () => {
+    const pointLoad = liveLoadPattern === "moving-point" || liveLoadPattern === "vehicle-train";
+    const common: LoadConfig = {
+      type: pointLoad ? "moving" : "udl",
+      intensity: pointLoad ? 10000 : 5000,
+      position: 0.5,
+      movingStep: 0.5,
+      startPosition: 0,
+      endPosition: 1,
+      inverted: false,
+      forceAngle: 0,
+    };
+    let additions: LoadConfig[];
+
+    if (liveLoadPattern === "left-half") additions = [{ ...common, type: "partial-udl", startPosition: 0, endPosition: 0.5 }];
+    else if (liveLoadPattern === "right-half") additions = [{ ...common, type: "partial-udl", startPosition: 0.5, endPosition: 1 }];
+    else if (liveLoadPattern === "middle-third") additions = [{ ...common, type: "partial-udl", startPosition: 1 / 3, endPosition: 2 / 3 }];
+    else if (liveLoadPattern === "alternating-spans") {
+      const boundaries = [...new Set([0, ...supportPositions.filter((position) => position > 0 && position < 1), 1])].sort((a, b) => a - b);
+      additions = boundaries.slice(0, -1)
+        .filter((_, index) => index % 2 === 0)
+        .map((startPosition, spanIndex) => ({
+          ...common,
+          type: "partial-udl",
+          startPosition,
+          endPosition: boundaries[boundaries.indexOf(startPosition) + 1],
+          position: spanIndex / Math.max(1, boundaries.length - 1),
+        }));
+    } else if (liveLoadPattern === "vehicle-train") additions = [{ ...common, type: "axle-train" }];
+    else additions = [common];
+
+    const firstIndex = loads.length;
+    onLoadsChange([...loads, ...additions]);
+    setOpenLoadIndex(firstIndex);
+    setAnimatingLoadIndex(null);
+  };
 
   const addLoad = () => {
     const newLoad: LoadConfig = {
@@ -98,7 +155,7 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength }: HybridLo
   };
 
   const removeLoad = (index: number) => {
-    if (animatingLoadIndex === index) setAnimatingLoadIndex(null);
+    if (animatingLoadIndex !== null) setAnimatingLoadIndex(null);
     onLoadsChange(loads.filter((_, i) => i !== index));
     if (openLoadIndex === index) setOpenLoadIndex(null);
   };
@@ -438,6 +495,26 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength }: HybridLo
           <Plus className="h-3 w-3 mr-1" />
           Add
         </Button>
+      </div>
+
+      <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+        <div>
+          <h5 className="text-xs font-medium text-foreground">Quick live-load cases</h5>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Add a common placement pattern, then edit its load value below. Vehicle train uses the solver’s equivalent moving point-load model.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Select value={liveLoadPattern} onValueChange={(value) => setLiveLoadPattern(value as LiveLoadPattern)}>
+            <SelectTrigger className="h-8 flex-1 bg-muted/30 border-border text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {LIVE_LOAD_PATTERNS.map((pattern) => <SelectItem key={pattern.value} value={pattern.value}>{pattern.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button onClick={addLiveLoadPattern} variant="secondary" size="sm" className="h-8 shrink-0 text-xs">
+            <Plus className="mr-1 h-3 w-3" />Add Case
+          </Button>
+        </div>
       </div>
 
       {/* Load Combinations - Only show when 2+ loads */}

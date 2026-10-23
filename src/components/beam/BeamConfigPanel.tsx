@@ -129,7 +129,12 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
             <SingleLoadControls b={b} />
           ) : (
             <div className="space-y-4">
-              <HybridLoadBuilder loads={b.hybridLoads} onLoadsChange={b.setHybridLoads} beamLength={b.beamLength} />
+              <HybridLoadBuilder
+                loads={b.hybridLoads}
+                onLoadsChange={b.setHybridLoads}
+                beamLength={b.beamLength}
+                supportPositions={b.supports.map((support) => support.position)}
+              />
               <div>
                 <BeamNumberField
                   label="Beam Length L"
@@ -152,6 +157,33 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
         {/* Right column: cross-section */}
         <div className="space-y-4">
           <CrossSectionControls b={b} />
+          <div className="space-y-3 rounded-lg border border-border/50 bg-muted/10 p-3">
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={b.includeSelfWeight}
+                onChange={(event) => b.setIncludeSelfWeight(event.currentTarget.checked)}
+                className="h-4 w-4 accent-primary"
+              />
+              Include beam self-weight
+            </label>
+            <BeamNumberField
+              label="Material unit weight γ"
+              value={b.materialUnitWeight * b.displayUnits.unitWeight.factor}
+              unit={b.displayUnits.unitWeight.unit}
+              min={0}
+              step={0.1}
+              precision={2}
+              onChange={(value) => b.setMaterialUnitWeight(value / b.displayUnits.unitWeight.factor)}
+            />
+            <p className="text-xs text-muted-foreground">
+              {b.includeSelfWeight
+                ? `Adds ${(
+                    b.selfWeightIntensity * b.displayUnits.distForce.factor
+                  ).toFixed(3)} ${b.displayUnits.distForce.unit} downward as a full-span load. It is included in the response diagrams.`
+                : `Steel default: ${(77000 * b.displayUnits.unitWeight.factor).toFixed(2)} ${b.displayUnits.unitWeight.unit}. Set γ for your material; enabled self-weight uses γ × section area as a full-span dead load.`}
+            </p>
+          </div>
         </div>
       </div>
     </div>

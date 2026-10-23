@@ -24,13 +24,14 @@ interface BeamSchematicProps {
   forceAngle: number;
   loadIntensity: number;
   supports: Support[];
+  selfWeightIncluded?: boolean;
 }
 
 export function BeamSchematic({
   beamType, loadType, loadMode = "single", hybridLoads = [], beamLength, lengthUnit, convertLengthToDisplay,
   concentratedPosition, movingPosition, momentPosition,
   partialStart, partialEnd, trapStartIntensity, trapEndIntensity,
-  triangularPeak, forceAngle, loadIntensity, supports,
+  triangularPeak, forceAngle, loadIntensity, supports, selfWeightIncluded = false,
 }: BeamSchematicProps) {
   const isFullDistributed = loadType === "udl" || loadType === "construction-stage" || loadType === "prestress";
   const isPointLike = loadType === "concentrated" || loadType === "torsional" || loadType === "harmonic-equivalent";
@@ -42,6 +43,10 @@ export function BeamSchematic({
   const beamLeft = 8;
   const beamRight = 92;
   const toPct = (value: number) => Math.max(beamLeft, Math.min(beamRight, beamLeft + value * (beamRight - beamLeft)));
+  const beamPositionStyle = (ratio: number) => ({
+    left: `calc(${ratio * 100}% + ${(1 - ratio) * 32}px)`,
+    transform: "translateX(-50%)",
+  });
   const activeLabel = hasHybridLoads ? `${hybridLoads.length} combined loads` : getLoadTypeLabel(loadType);
 
   const renderHybridLoad = (load: LoadConfig, index: number) => {
@@ -92,7 +97,13 @@ export function BeamSchematic({
     return (
       <g key={`hybrid-${index}`} opacity={0.95}>
         <path d={`M ${position} ${12 + yOffset} V 44 l -4 -7 M ${position} 44 l 4 -7`} stroke={color} strokeWidth="2" fill="none" />
-        {load.type === "moving" || load.type === "axle-train" ? <path d={`M ${position + 3} ${22 + yOffset} h 14 l -4 -3 M ${position + 17} ${22 + yOffset} l -4 3`} stroke={color} strokeWidth="1.4" fill="none" /> : null}
+        {load.type === "moving" || load.type === "axle-train" ? (
+          <>
+            <path d={`M ${beamLeft} ${22 + yOffset} H ${beamRight}`} stroke={color} strokeWidth="0.8" strokeDasharray="2 3" opacity="0.45" />
+            <path d={`M ${position + 3} ${22 + yOffset} h 14 l -4 -3 M ${position + 17} ${22 + yOffset} l -4 3`} stroke={color} strokeWidth="1.4" fill="none" />
+            <text x={position + 5} y={10 + yOffset} fill={color} fontSize="5" fontWeight="bold">L{index + 1}</text>
+          </>
+        ) : null}
       </g>
     );
   };
@@ -103,6 +114,11 @@ export function BeamSchematic({
       <div className="relative h-36 bg-muted/20 rounded-lg overflow-hidden">
         {/* Beam bar */}
         <div className="absolute top-1/2 left-8 right-8 h-4 bg-primary/60 -translate-y-1/2 rounded" />
+        {selfWeightIncluded && (
+          <span className="absolute right-3 top-2 rounded bg-muted/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            Self-weight included · hidden load
+          </span>
+        )}
         {(beamType === "tapered" || beamType === "beam-column" || beamType === "composite" || beamType === "elastic-foundation" || beamType === "spring-supported" || beamType === "gerber") && (
           <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             {beamType === "tapered" && <polygon points="8,46 92,49 92,56 8,54" fill="hsl(var(--primary))" opacity="0.42" />}
@@ -141,7 +157,7 @@ export function BeamSchematic({
         {!hasHybridLoads && isPointLike && (
           <div
             className="absolute top-2 flex flex-col items-center"
-            style={{ left: `calc(32px + ${concentratedPosition * (100 - 16)}%)` }}
+            style={beamPositionStyle(concentratedPosition)}
           >
             <svg width="40" height="50" viewBox="0 0 40 50" style={{ transform: `rotate(${forceAngle}deg)` }}>
               <line x1="20" y1="0" x2="20" y2="35" stroke="hsl(var(--destructive))" strokeWidth="2" />
@@ -187,17 +203,22 @@ export function BeamSchematic({
 
         {/* Moving load */}
         {!hasHybridLoads && isMovingLike && (
-          <div
-            className="absolute top-2 flex flex-col items-center transition-all duration-100"
-            style={{ left: `calc(32px + ${movingPosition * (100 - 16)}%)` }}
-          >
-            <svg width="40" height="50" viewBox="0 0 40 50" style={{ transform: `rotate(${forceAngle}deg)` }}>
-              <line x1="20" y1="0" x2="20" y2="35" stroke="hsl(var(--chart-posterior))" strokeWidth="2" />
-              <polygon points="14,30 20,42 26,30" fill="hsl(var(--chart-posterior))" />
-            </svg>
-            <span className="text-xs text-chart-posterior font-bold animate-pulse">P</span>
-            {forceAngle !== 0 && <span className="text-[10px] text-muted-foreground">{forceAngle}°</span>}
-          </div>
+          <>
+            <div className="absolute left-8 right-8 top-5 border-t border-dashed border-chart-posterior/40" />
+            <div
+              className="absolute top-2 flex flex-col items-center transition-[left] duration-100 ease-linear"
+              style={beamPositionStyle(movingPosition)}
+            >
+              <svg width="40" height="50" viewBox="0 0 40 50" style={{ transform: `rotate(${forceAngle}deg)` }}>
+                <line x1="20" y1="0" x2="20" y2="35" stroke="hsl(var(--chart-posterior))" strokeWidth="2" />
+                <polygon points="14,30 20,42 26,30" fill="hsl(var(--chart-posterior))" />
+              </svg>
+              <span className="rounded bg-background/90 px-1 text-[10px] text-chart-posterior font-bold animate-pulse">
+                {loadType === "axle-train" ? "LIVE AXLES" : "LIVE"}
+              </span>
+              {forceAngle !== 0 && <span className="text-[10px] text-muted-foreground">{forceAngle}°</span>}
+            </div>
+          </>
         )}
 
         {/* Partial UDL */}
@@ -259,7 +280,7 @@ export function BeamSchematic({
         {/* Applied Moment */}
         {!hasHybridLoads && isMomentLike && (
           <div className="absolute top-0 flex flex-col items-center"
-            style={{ left: `calc(32px + ${momentPosition * (100 - 16)}%)`, transform: "translateX(-50%)" }}>
+            style={beamPositionStyle(momentPosition)}>
             <svg width="40" height="48" viewBox="0 0 40 48">
               <path d="M 8,24 A 12,12 0 1,1 32,24" fill="none" stroke="hsl(var(--accent))" strokeWidth="2.5" />
               <polygon points="30,18 36,24 28,26" fill="hsl(var(--accent))" />

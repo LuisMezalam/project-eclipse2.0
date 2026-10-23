@@ -76,6 +76,8 @@ export function useBeamAnalysis() {
   const [strengthCOV, setStrengthCOV] = useState(0.08);
   const [loadCOV, setLoadCOV] = useState(0.2);
   const [elasticModulus, setElasticModulus] = useState(200);
+  const [includeSelfWeight, setIncludeSelfWeight] = useState(false);
+  const [materialUnitWeight, setMaterialUnitWeight] = useState(77000); // N/m³; steel default
 
   // Sync from shared context
   useEffect(() => {
@@ -133,6 +135,7 @@ export function useBeamAnalysis() {
         yieldUnit: "ksi",
         yieldFactor: 1 / 6.89476,  // MPa → ksi
         distForce: { factor: 1 / 14593.9, unit: "kip/ft" },
+        unitWeight: { factor: 1 / (forceConversions.kip / Math.pow(lengthConversions.ft, 3)), unit: "kip/ft³" },
         // Diagram data is in kN, kN·m, mm, m (x-axis)
         diagramShear: 0.224809,   // kN → kip
         diagramMoment: 0.737562,  // kN·m → kip·ft
@@ -153,6 +156,7 @@ export function useBeamAnalysis() {
       yieldUnit: "MPa",
       yieldFactor: 1,
       distForce: { factor: 1 / 1000, unit: "kN/m" },
+      unitWeight: { factor: 1 / 1000, unit: "kN/m³" },
       diagramShear: 1,
       diagramMoment: 1,
       diagramDefl: 1,
@@ -248,13 +252,20 @@ export function useBeamAnalysis() {
     [hybridLoads, beamLength],
   );
 
-  const beamSolution = useMemo(() => {
-    const loads = loadMode === "hybrid" && effectiveHybridLoads.length > 0
+  const activeLoads = useMemo<LoadConfig[]>(() => (
+    loadMode === "hybrid" && effectiveHybridLoads.length > 0
       ? effectiveHybridLoads
-      : [effectiveLoadConfig];
+      : [effectiveLoadConfig]
+  ), [loadMode, effectiveHybridLoads, effectiveLoadConfig]);
+  const selfWeightIntensity = includeSelfWeight ? materialUnitWeight * sectionProps.area : 0;
+  const selfWeightLoad = useMemo<LoadConfig | null>(() => includeSelfWeight
+    ? { type: "udl", intensity: selfWeightIntensity, inverted: false }
+    : null, [includeSelfWeight, selfWeightIntensity]);
+
+  const beamSolution = useMemo(() => {
     return solveBeamResponse(
       beamType,
-      loads,
+      selfWeightLoad ? [...activeLoads, selfWeightLoad] : activeLoads,
       beamLength,
       elasticModulus * 1e9,
       sectionProps.momentOfInertia,
@@ -262,7 +273,7 @@ export function useBeamAnalysis() {
       { numPoints: 400 },
       sectionProps.sectionModulus,
     );
-  }, [beamType, effectiveLoadConfig, loadMode, effectiveHybridLoads, beamLength, sectionProps, elasticModulus, supports]);
+  }, [beamType, activeLoads, selfWeightLoad, beamLength, sectionProps, elasticModulus, supports]);
   const beamResult: BeamAnalysis = beamSolution.analysis;
   const diagramData = beamSolution.diagramData;
 
@@ -346,13 +357,25 @@ export function useBeamAnalysis() {
   ), [beamType, influenceMeasurePoint, beamLength, elasticModulus, sectionProps.momentOfInertia, supports]);
 
   const envelopeData = useMemo(() => {
-    const intensity = loadMode === "hybrid"
-      ? effectiveHybridLoads.find((l) => l.type === "moving")?.intensity || effectiveLoadConfig.intensity
-      : effectiveLoadConfig.intensity;
-    return generateEnvelopeData(beamType, intensity, beamLength, elasticModulus * 1e9, sectionProps.momentOfInertia, 50, 20, supports);
-  }, [beamType, effectiveLoadConfig.intensity, loadMode, effectiveHybridLoads, beamLength, elasticModulus, sectionProps.momentOfInertia, supports]);
+    const movingLoads = activeLoads.filter((load) => load.type === "moving" || load.type === "axle-train");
+    const baseLoads = activeLoads.filter((load) => load.type !== "moving" && load.type !== "axle-train");
+    if (selfWeightLoad) baseLoads.push(selfWeightLoad);
+    const intensity = movingLoads[0]?.intensity ?? effectiveLoadConfig.intensity;
+    return generateEnvelopeData(
+      beamType,
+      intensity,
+      beamLength,
+      elasticModulus * 1e9,
+      sectionProps.momentOfInertia,
+      50,
+      20,
+      supports,
+      baseLoads,
+      movingLoads,
+    );
+  }, [beamType, activeLoads, selfWeightLoad, effectiveLoadConfig.intensity, beamLength, elasticModulus, sectionProps.momentOfInertia, supports]);
 
-  const hasMovingLoad = loadMode === "hybrid" ? hybridLoads.some(l => l.type === "moving" || l.type === "axle-train") : loadType === "moving" || loadType === "axle-train";
+  const hasMovingLoad = activeLoads.some((load) => load.type === "moving" || load.type === "axle-train");
 
   // ─── Load markers for influence lines ───────────────────────
   const loadMarkers = useMemo(() => {
@@ -419,8 +442,9 @@ export function useBeamAnalysis() {
       const prefix = effectiveLoadConfig.type === "concentrated" || effectiveLoadConfig.type === "moving" ? "P" : effectiveLoadConfig.type === "moment" ? "M" : "w";
       processLoad(effectiveLoadConfig, prefix, "hsl(142 71% 45%)");
     }
+    if (selfWeightLoad) processLoad(selfWeightLoad, "SW", "hsl(215 20% 65%)");
     return { influenceEffects: { shear: totalShear / 1000, moment: totalMoment / 1000 }, loadContributions: contributions };
-  }, [loadMode, effectiveHybridLoads, effectiveLoadConfig, beamType, beamLength, elasticModulus, sectionProps, supports, influenceMeasurePoint]);
+  }, [loadMode, effectiveHybridLoads, effectiveLoadConfig, selfWeightLoad, beamType, beamLength, elasticModulus, sectionProps, supports, influenceMeasurePoint]);
 
   // ─── Export ─────────────────────────────────────────────────
   const getBeamReportData = useCallback((): ReportSection[] => {
@@ -436,6 +460,11 @@ export function useBeamAnalysis() {
         { label: "Beam Length", value: beamLength * posConv, unit: lu, precision: 2 },
         { label: "Loading Mode", value: loadMode === "hybrid" ? "Hybrid (Multiple Loads)" : "Single Load", precision: 0 },
         { label: "Elastic Modulus", value: eModValue, unit: eModUnit, precision: 1 },
+        { label: "Beam Self-Weight", value: includeSelfWeight ? "Included" : "Off", precision: 0 },
+        ...(includeSelfWeight ? [
+          { label: "Material Unit Weight", value: materialUnitWeight * du.unitWeight.factor, unit: du.unitWeight.unit, precision: 2 },
+          { label: "Self-Weight Line Load", value: selfWeightIntensity * du.distForce.factor, unit: du.distForce.unit, precision: 3 },
+        ] : []),
       ]},
     ];
     if (loadMode === "hybrid" && hybridLoads.length > 0) {
@@ -492,7 +521,7 @@ export function useBeamAnalysis() {
       ]},
     );
     return sections;
-  }, [beamType, beamLength, loadType, loadMode, hybridLoads, loadIntensity, elasticModulus, crossSectionType, sectionProps, beamResult, reliability, validation, displayUnits, isImperial, convertForceToDisplay, getDisplayForceUnit]);
+  }, [beamType, beamLength, loadType, loadMode, hybridLoads, loadIntensity, elasticModulus, crossSectionType, sectionProps, beamResult, reliability, validation, displayUnits, isImperial, convertForceToDisplay, getDisplayForceUnit, includeSelfWeight, materialUnitWeight, selfWeightIntensity]);
 
   const getBeamCSVData = useCallback(() => diagramData.map(p => ({
     position_m: p.x, shear_kn: p.shear, moment_knm: p.moment, deflection_mm: p.deflection,
@@ -506,6 +535,8 @@ export function useBeamAnalysis() {
     beamLength, setBeamLength, yieldStrength, setYieldStrength,
     strengthCOV, setStrengthCOV, loadCOV, setLoadCOV,
     elasticModulus, setElasticModulus,
+    includeSelfWeight, setIncludeSelfWeight, materialUnitWeight, setMaterialUnitWeight,
+    selfWeightIntensity,
     // Units
     unitSystem, setUnitSystem, forceUnit, setForceUnit,
     distributedForceUnit, setDistributedForceUnit, lengthUnit, setLengthUnit,

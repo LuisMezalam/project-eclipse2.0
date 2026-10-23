@@ -34,7 +34,8 @@ export function StaticBeamAnalysis() {
         momentPosition={b.momentPosition} partialStart={b.partialStart} partialEnd={b.partialEnd}
         trapStartIntensity={b.trapStartIntensity} trapEndIntensity={b.trapEndIntensity}
         triangularPeak={b.triangularPeak} forceAngle={b.forceAngle}
-        loadIntensity={b.loadIntensity} supports={b.supports} />
+        loadIntensity={b.loadIntensity} supports={b.supports}
+        selfWeightIncluded={b.includeSelfWeight} />
       
 
       <CrossSectionPropertiesDisplay

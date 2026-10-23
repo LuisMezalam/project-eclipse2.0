@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { normalInverseCDF, reliabilityIndex, probabilityOfFailure } from "@/lib/reliability";
 
 export type TrussUnitSystem = "metric" | "imperial";
+export type TrussLiveLoadPattern = "uniform-top-chord" | "alternate-top-chord" | "midspan-node" | "left-half" | "right-half";
 
 export interface TrussDisplayUnits {
   system: TrussUnitSystem;
@@ -11,6 +12,7 @@ export interface TrussDisplayUnits {
   area: { factor: number; unit: string };         // m² → display
   modulus: { factor: number; unit: string };      // Pa → display (GPa or ksi)
   areaSmall: { factor: number; unit: string };    // m² → display (cm² or in²)
+  unitWeight: { factor: number; unit: string };   // N/m³ → display
 }
 import { normalRandom } from "@/lib/statistics";
 import {
@@ -70,6 +72,8 @@ export function useTrussAnalysis() {
   const [height, setHeight] = useState(2);
   const [numPanels, setNumPanels] = useState(4);
   const [appliedLoad, setAppliedLoad] = useState(10000);
+  const [includeSelfWeight, setIncludeSelfWeight] = useState(false);
+  const [materialUnitWeight, setMaterialUnitWeight] = useState(77000); // N/m³; steel default
 
   // Reliability analysis state
   const [showReliability, setShowReliability] = useState(true);
@@ -108,6 +112,7 @@ export function useTrussAnalysis() {
         area:      { factor: 1550.0031,     unit: "in²" },   // m² → in²
         modulus:   { factor: 1 / 6894760,   unit: "ksi" },
         areaSmall: { factor: 1550.0031,     unit: "in²" },
+        unitWeight: { factor: 1 / (4448.22 / Math.pow(0.3048, 3)), unit: "kip/ft³" },
       };
     }
     return {
@@ -118,8 +123,38 @@ export function useTrussAnalysis() {
       area:      { factor: 1e4,       unit: "cm²" },   // m² → cm²
       modulus:   { factor: 1 / 1e9,   unit: "GPa" },
       areaSmall: { factor: 1e4,       unit: "cm²" },
+      unitWeight: { factor: 1 / 1000, unit: "kN/m³" },
     };
   }, [unitSystem]);
+
+  const selfWeightLoads = useMemo<PointLoad[]>(() => {
+    if (!includeSelfWeight || materialUnitWeight <= 0) return [];
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    let nextLoadId = Math.max(...pointLoads.map((load) => load.id), 0) + 1;
+    const generatedLoads: PointLoad[] = [];
+
+    for (const member of members) {
+      const start = nodeById.get(member.startNode);
+      const end = nodeById.get(member.endNode);
+      if (!start || !end || !Number.isFinite(member.area) || member.area <= 0) continue;
+      const length = Math.hypot(end.x - start.x, end.y - start.y);
+      if (!Number.isFinite(length) || length <= 0) continue;
+      const memberWeight = materialUnitWeight * member.area * length;
+      for (const nodeId of [member.startNode, member.endNode]) {
+        generatedLoads.push({
+          id: nextLoadId++,
+          nodeId,
+          magnitude: memberWeight / 2,
+          angle: 0,
+          magnitudeCoV: DEFAULT_COV_BY_CATEGORY.dead,
+          category: "dead",
+        });
+      }
+    }
+    return generatedLoads;
+  }, [includeSelfWeight, materialUnitWeight, nodes, members, pointLoads]);
+  const analysisPointLoads = useMemo(() => [...pointLoads, ...selfWeightLoads], [pointLoads, selfWeightLoads]);
+  const totalSelfWeight = useMemo(() => selfWeightLoads.reduce((sum, load) => sum + load.magnitude, 0), [selfWeightLoads]);
 
   // Generate standard truss configurations
   const generateTruss = useCallback((type: string) => {
@@ -211,9 +246,9 @@ export function useTrussAnalysis() {
         memberAnalysisError: 'Rigid-jointed frame bending is not modeled by this axial truss solver. Select Truss (Pin Joints) for a valid analysis.',
       };
     }
-    const result = solvePlanarTruss(nodes, members, pointLoads);
+    const result = solvePlanarTruss(nodes, members, analysisPointLoads);
     return { memberResults: result.memberResults, memberAnalysisError: result.error };
-  }, [nodes, members, pointLoads, structureType]);
+  }, [nodes, members, analysisPointLoads, structureType]);
 
   // Truss System Reliability Analysis
   const trussReliability = useMemo<TrussSystemReliability>(() => {
@@ -225,8 +260,8 @@ export function useTrussAnalysis() {
       };
     }
 
-    const avgLoadCoV = pointLoads.length > 0
-      ? pointLoads.reduce((sum, l) => sum + l.magnitudeCoV, 0) / pointLoads.length
+    const avgLoadCoV = analysisPointLoads.length > 0
+      ? analysisPointLoads.reduce((sum, l) => sum + l.magnitudeCoV, 0) / analysisPointLoads.length
       : DEFAULT_LOAD_COV;
 
     const memberReliabilities: MemberReliability[] = members.map(member => {
@@ -311,7 +346,7 @@ export function useTrussAnalysis() {
       boundsPf: { lower: pfLowerBound, upper: pfUpperBound },
       criticalPath, memberReliabilities, higherOrderAnalysis, systemMarginOfError
     };
-  }, [members, memberResults, pointLoads, showReliability, memberAnalysisError]);
+  }, [members, memberResults, analysisPointLoads, showReliability, memberAnalysisError]);
 
   // Monte Carlo Validation
   const mcResults = useMemo(() => {
@@ -319,8 +354,8 @@ export function useTrussAnalysis() {
     const _ = mcTrigger;
     let failureCount = 0;
     const convergenceHistory: { samples: number; pf: number }[] = [];
-    const avgLoadCoV = pointLoads.length > 0
-      ? pointLoads.reduce((sum, l) => sum + l.magnitudeCoV, 0) / pointLoads.length
+    const avgLoadCoV = analysisPointLoads.length > 0
+      ? analysisPointLoads.reduce((sum, l) => sum + l.magnitudeCoV, 0) / analysisPointLoads.length
       : DEFAULT_LOAD_COV;
 
     for (let i = 0; i < mcSamples; i++) {
@@ -343,27 +378,27 @@ export function useTrussAnalysis() {
     const estimatedPf = failureCount / mcSamples;
     const estimatedBeta = estimatedPf > 0 && estimatedPf < 1 ? -normalInverseCDF(estimatedPf) : (estimatedPf === 0 ? 5 : 0);
     return { numSamples: mcSamples, failureCount, estimatedPf, estimatedBeta: Math.max(0, Math.min(estimatedBeta, 10)), convergenceHistory };
-  }, [members, memberResults, pointLoads, mcSamples, mcTrigger, runMonteCarlo, showReliability, memberAnalysisError]);
+  }, [members, memberResults, analysisPointLoads, mcSamples, mcTrigger, runMonteCarlo, showReliability, memberAnalysisError]);
 
   // Importance Sampling
   const isResults = useMemo<ImportanceSamplingResult | null>(() => {
     if (!runImportanceSampling || !showReliability || members.length === 0 || memberResults.length === 0) return null;
     const _ = isTrigger;
-    return importanceSamplingMonteCarlo(members, memberResults, pointLoads, isSamples, trussReliability.systemBeta);
-  }, [members, memberResults, pointLoads, isSamples, isTrigger, runImportanceSampling, showReliability, trussReliability.systemBeta]);
+    return importanceSamplingMonteCarlo(members, memberResults, analysisPointLoads, isSamples, trussReliability.systemBeta);
+  }, [members, memberResults, analysisPointLoads, isSamples, isTrigger, runImportanceSampling, showReliability, trussReliability.systemBeta]);
 
   // LRFD
   const lrfdResults = useMemo<LRFDResult[]>(() => {
     if (!enableLRFD || !showReliability || members.length === 0 || memberResults.length === 0) return [];
     return LRFD_COMBINATIONS.map(combo => {
       let factoredLoad = 0;
-      for (const load of pointLoads) {
+      for (const load of analysisPointLoads) {
         const factor = combo.factors[load.category] || 0;
         factoredLoad += load.magnitude * factor;
       }
       if (factoredLoad === 0) return { combinationId: combo.id, combinationName: combo.name, factoredLoad: 0, systemBeta: 5, systemPf: 0, isCritical: false, memberBetas: [] };
 
-      const totalUnfactoredLoad = pointLoads.reduce((sum, l) => sum + l.magnitude, 0);
+      const totalUnfactoredLoad = analysisPointLoads.reduce((sum, l) => sum + l.magnitude, 0);
       const loadRatio = totalUnfactoredLoad > 0 ? factoredLoad / totalUnfactoredLoad : 1;
       const memberBetas: { memberId: number; beta: number }[] = [];
 
@@ -372,7 +407,7 @@ export function useTrussAnalysis() {
         if (!result || result.stress === 0) continue;
         const factoredStress = Math.abs(result.stress) * loadRatio;
         let weightedCoV = 0, totalWeight = 0;
-        for (const load of pointLoads) {
+        for (const load of analysisPointLoads) {
           const factor = combo.factors[load.category] || 0;
           const weight = load.magnitude * factor;
           weightedCoV += weight * DEFAULT_COV_BY_CATEGORY[load.category];
@@ -392,7 +427,7 @@ export function useTrussAnalysis() {
       const systemPf = probabilityOfFailure(minBeta);
       return { combinationId: combo.id, combinationName: combo.name, factoredLoad, systemBeta: minBeta, systemPf, isCritical: minBeta < 3.0, memberBetas };
     }).filter(r => r.factoredLoad > 0);
-  }, [enableLRFD, showReliability, members, memberResults, pointLoads]);
+  }, [enableLRFD, showReliability, members, memberResults, analysisPointLoads]);
 
   const criticalLRFD = useMemo(() => {
     if (lrfdResults.length === 0) return null;
@@ -409,7 +444,7 @@ export function useTrussAnalysis() {
       const result = memberResults.find(r => r.memberId === member.id);
       if (!result || Math.abs(result.stress) < 1) continue;
       const meanStress = Math.abs(result.stress);
-      const avgLoadCoV = pointLoads.length > 0 ? pointLoads.reduce((sum, l) => sum + l.magnitudeCoV, 0) / pointLoads.length : DEFAULT_LOAD_COV;
+      const avgLoadCoV = analysisPointLoads.length > 0 ? analysisPointLoads.reduce((sum, l) => sum + l.magnitudeCoV, 0) / analysisPointLoads.length : DEFAULT_LOAD_COV;
       const stressCoV = Math.sqrt(avgLoadCoV * avgLoadCoV + member.areaCoV * member.areaCoV);
       const stdStress = meanStress * stressCoV;
 
@@ -446,7 +481,7 @@ export function useTrussAnalysis() {
     for (const r of results) r.importance = Math.abs(r.elasticity) / maxElasticity;
     results.sort((a, b) => b.importance - a.importance);
     return results;
-  }, [showSensitivity, showReliability, members, memberResults, pointLoads, trussReliability.systemBeta]);
+  }, [showSensitivity, showReliability, members, memberResults, analysisPointLoads, trussReliability.systemBeta]);
 
   const topSensitivityFactors = useMemo(() => sensitivityResults.slice(0, 10), [sensitivityResults]);
 
@@ -454,15 +489,15 @@ export function useTrussAnalysis() {
   const ssResults = useMemo<SubsetSimulationResult | null>(() => {
     if (!runSubsetSimulation || !showReliability || members.length === 0 || memberResults.length === 0) return null;
     const _ = ssTrigger;
-    return subsetSimulationMonteCarlo(members, memberResults, pointLoads, ssSamplesPerLevel, 0.1);
-  }, [members, memberResults, pointLoads, ssSamplesPerLevel, ssTrigger, runSubsetSimulation, showReliability]);
+    return subsetSimulationMonteCarlo(members, memberResults, analysisPointLoads, ssSamplesPerLevel, 0.1);
+  }, [members, memberResults, analysisPointLoads, ssSamplesPerLevel, ssTrigger, runSubsetSimulation, showReliability]);
 
   // RBDO
   const rbdoResults = useMemo<RBDOResult | null>(() => {
     if (!enableRBDO || !showReliability || members.length === 0 || memberResults.length === 0) return null;
     const _ = rbdoTrigger;
-    return reliabilityBasedDesignOptimization(members, memberResults, pointLoads, rbdoTargetBeta, 20, 0.05);
-  }, [members, memberResults, pointLoads, rbdoTargetBeta, rbdoTrigger, enableRBDO, showReliability]);
+    return reliabilityBasedDesignOptimization(members, memberResults, analysisPointLoads, rbdoTargetBeta, 20, 0.05);
+  }, [members, memberResults, analysisPointLoads, rbdoTargetBeta, rbdoTrigger, enableRBDO, showReliability]);
 
   const applyRBDOResults = useCallback(() => {
     if (!rbdoResults?.success) return;
@@ -599,6 +634,40 @@ export function useTrussAnalysis() {
     setPointLoads([...pointLoads, { id: newId, nodeId, magnitude: 10000, angle: 0, magnitudeCoV: DEFAULT_LOAD_COV, category: 'live' }]);
     setBuilderNotice(`Added a load at Node ${nodeId}.`);
   };
+  const addLiveLoadPattern = useCallback((pattern: TrussLiveLoadPattern, totalMagnitude: number) => {
+    if (nodes.length === 0 || !Number.isFinite(totalMagnitude) || totalMagnitude <= 0) return 0;
+    const maxY = Math.max(...nodes.map((node) => node.y));
+    const minY = Math.min(...nodes.map((node) => node.y));
+    const flatTolerance = Math.max(1e-6, Math.abs(maxY) * 1e-6);
+    const hasRaisedChord = maxY - minY > flatTolerance;
+    const topNodes = nodes
+      .filter((node) => !hasRaisedChord || Math.abs(node.y - maxY) <= flatTolerance)
+      .sort((a, b) => a.x - b.x || a.id - b.id);
+    if (topNodes.length === 0) return 0;
+    const minX = Math.min(...topNodes.map((node) => node.x));
+    const maxX = Math.max(...topNodes.map((node) => node.x));
+    const centerX = (minX + maxX) / 2;
+    let loadedNodes = topNodes;
+
+    if (pattern === "alternate-top-chord") loadedNodes = topNodes.filter((_, index) => index % 2 === 0);
+    else if (pattern === "midspan-node") loadedNodes = [topNodes.reduce((closest, node) =>
+      Math.abs(node.x - centerX) < Math.abs(closest.x - centerX) ? node : closest, topNodes[0]!)];
+    else if (pattern === "left-half") loadedNodes = topNodes.filter((node) => node.x <= centerX);
+    else if (pattern === "right-half") loadedNodes = topNodes.filter((node) => node.x > centerX);
+    if (loadedNodes.length === 0) return 0;
+
+    const magnitudePerNode = totalMagnitude / loadedNodes.length;
+    const firstId = Math.max(...pointLoads.map((load) => load.id), 0) + 1;
+    setPointLoads([...pointLoads, ...loadedNodes.map((node, index) => ({
+      id: firstId + index,
+      nodeId: node.id,
+      magnitude: magnitudePerNode,
+      angle: 0,
+      magnitudeCoV: DEFAULT_COV_BY_CATEGORY.live,
+      category: "live" as const,
+    }))]);
+    return loadedNodes.length;
+  }, [nodes, pointLoads]);
   const deletePointLoad = (id: number) => { setPointLoads(pointLoads.filter(l => l.id !== id)); };
 
   const maxForce = Math.max(...memberResults.map(r => Math.abs(r.force)), 1);
@@ -608,6 +677,7 @@ export function useTrussAnalysis() {
   return {
     // State
     nodes, setNodes, members, setMembers, pointLoads, setPointLoads,
+    includeSelfWeight, setIncludeSelfWeight, materialUnitWeight, setMaterialUnitWeight, totalSelfWeight,
     selectedNodeId, setSelectedNodeId, selectedMemberId, setSelectedMemberId,
     memberConnectionMode, connectionStartNodeId, builderNotice,
     structureType, setStructureType, trussType, setTrussType,
@@ -634,6 +704,7 @@ export function useTrussAnalysis() {
     // Actions
     generateTruss, addNodeAt, startMemberConnection, finishMemberConnection, handleTrussNodeClick,
     deleteMember, deleteNode, addPointLoad, deletePointLoad,
+    addLiveLoadPattern,
   };
 }
 

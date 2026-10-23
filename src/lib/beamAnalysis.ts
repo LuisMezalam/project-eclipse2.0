@@ -1368,6 +1368,8 @@ export function generateEnvelopeData(
   numPoints: number = 50,
   numPositions: number = 20,
   supports?: BeamSupportCondition[],
+  baseLoads: LoadConfig[] = [],
+  movingLoads: LoadConfig[] = [],
 ): EnvelopePoint[] {
   const L = beamLength;
   const data: EnvelopePoint[] = [];
@@ -1380,13 +1382,18 @@ export function generateEnvelopeData(
 
     for (let j = 0; j <= numPositions; j++) {
       const loadPos = j / numPositions;
-      const config: LoadConfig = {
-        type: 'moving',
-        intensity: loadIntensity,
-        movingStep: loadPos
-      };
-
-      const diagData = generateDiagramData(beamType, config, L, elasticModulus, momentOfInertia, numPoints, supports);
+      const sweptLoads = movingLoads.length > 0
+        ? movingLoads.map((load) => ({ ...load, type: 'moving' as const, movingStep: loadPos }))
+        : [{ type: 'moving' as const, intensity: loadIntensity, movingStep: loadPos }];
+      const diagData = generateHybridDiagramData(
+        beamType,
+        [...baseLoads, ...sweptLoads],
+        L,
+        elasticModulus,
+        momentOfInertia,
+        numPoints,
+        supports,
+      );
       const point = diagData[i];
 
       if (point) {

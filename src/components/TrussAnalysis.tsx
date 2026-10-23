@@ -23,6 +23,9 @@ export function TrussAnalysis() {
         height={t.height} setHeight={t.setHeight}
         numPanels={t.numPanels} setNumPanels={t.setNumPanels}
         appliedLoad={t.appliedLoad} setAppliedLoad={t.setAppliedLoad}
+        includeSelfWeight={t.includeSelfWeight} setIncludeSelfWeight={t.setIncludeSelfWeight}
+        materialUnitWeight={t.materialUnitWeight} setMaterialUnitWeight={t.setMaterialUnitWeight}
+        totalSelfWeight={t.totalSelfWeight}
         generateTruss={t.generateTruss}
         nodes={t.nodes} setNodes={t.setNodes}
         members={t.members} setMembers={t.setMembers}
@@ -33,6 +36,7 @@ export function TrussAnalysis() {
         startMemberConnection={t.startMemberConnection} finishMemberConnection={t.finishMemberConnection}
         memberConnectionMode={t.memberConnectionMode} connectionStartNodeId={t.connectionStartNodeId} builderNotice={t.builderNotice}
         addPointLoad={t.addPointLoad}
+        addLiveLoadPattern={t.addLiveLoadPattern}
         deleteNode={t.deleteNode} deleteMember={t.deleteMember} deletePointLoad={t.deletePointLoad}
         loadColors={t.loadColors}
         unitSystem={t.unitSystem} setUnitSystem={t.setUnitSystem} du={t.du}

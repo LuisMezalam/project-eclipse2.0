@@ -24,6 +24,29 @@ interface TrussDiagramProps {
 
 export function TrussDiagram(p: TrussDiagramProps) {
   const du = p.du;
+  const loadColorByCategory: Record<PointLoad["category"], string> = {
+    dead: "hsl(215 15% 58%)",
+    live: "hsl(199 89% 48%)",
+    wind: "hsl(262 83% 58%)",
+    snow: "hsl(173 80% 40%)",
+    earthquake: "hsl(0 84% 60%)",
+    rain: "hsl(45 93% 47%)",
+  };
+  const aggregatedLoads = new Map<string, { nodeId: number; category: PointLoad["category"]; horizontal: number; downward: number }>();
+  for (const load of p.pointLoads) {
+    const key = `${load.nodeId}:${load.category}`;
+    const current = aggregatedLoads.get(key) ?? { nodeId: load.nodeId, category: load.category, horizontal: 0, downward: 0 };
+    const angle = load.angle * Math.PI / 180;
+    current.horizontal += load.magnitude * Math.sin(angle);
+    current.downward += load.magnitude * Math.cos(angle);
+    aggregatedLoads.set(key, current);
+  }
+  const diagramLoads = [...aggregatedLoads.values()].map((load) => ({
+    ...load,
+    magnitude: Math.hypot(load.horizontal, load.downward),
+    angle: Math.atan2(load.horizontal, load.downward) * 180 / Math.PI,
+  })).filter((load) => load.magnitude > 1e-8);
+  const maxLoadMagnitude = Math.max(...diagramLoads.map((load) => load.magnitude), 1);
 
   return (
     <div className="glass-card p-6">
@@ -92,34 +115,55 @@ export function TrussDiagram(p: TrussDiagramProps) {
           ))}
 
           {/* Point Load arrows */}
-          {p.pointLoads.map((load, index) => {
+          {diagramLoads.map((load) => {
             const node = p.nodes.find(n => n.id === load.nodeId);
             if (!node) return null;
             const angleRad = (load.angle * Math.PI) / 180;
-            const arrowLength = 40;
+            const arrowLength = 24 + 26 * Math.sqrt(load.magnitude / maxLoadMagnitude);
             const endX = p.toSvgX(node.x) + arrowLength * Math.sin(angleRad);
             const endY = p.toSvgY(node.y) - arrowLength * Math.cos(angleRad);
-            const color = p.loadColors[index % p.loadColors.length];
+            const color = loadColorByCategory[load.category];
+            const sameNodeLoads = diagramLoads.filter((candidate) => candidate.nodeId === load.nodeId);
+            const localIndex = sameNodeLoads.findIndex((candidate) => candidate.category === load.category);
+            const headX = p.toSvgX(node.x) + (localIndex - (sameNodeLoads.length - 1) / 2) * 8;
+            const headY = p.toSvgY(node.y) - 12;
+            const lineLength = Math.hypot(headX - endX, headY - endY) || 1;
+            const dirX = (headX - endX) / lineLength;
+            const dirY = (headY - endY) / lineLength;
+            const baseX = headX - 8 * dirX;
+            const baseY = headY - 8 * dirY;
+            const sideX = -dirY * 4;
+            const sideY = dirX * 4;
+            const categoryLabel = load.category === "live" ? "L" : load.category.toUpperCase().slice(0, 1);
             return (
-              <g key={load.id}>
-                <line x1={endX} y1={endY} x2={p.toSvgX(node.x)} y2={p.toSvgY(node.y) - 12} stroke={color} strokeWidth={2.5} />
-                <polygon points={`${p.toSvgX(node.x) - 6 * Math.cos(angleRad)},${p.toSvgY(node.y) - 12 - 6 * Math.sin(angleRad)} ${p.toSvgX(node.x)},${p.toSvgY(node.y) - 8} ${p.toSvgX(node.x) + 6 * Math.cos(angleRad)},${p.toSvgY(node.y) - 12 + 6 * Math.sin(angleRad)}`} fill={color} />
-                <text x={endX + 5} y={endY - 5} className="text-[9px] font-medium" fill={color}>{(load.magnitude * du.force.factor).toFixed(1)} {du.force.unit}</text>
+              <g key={`${load.nodeId}-${load.category}`}>
+                <title>{`${load.category} load at Node ${load.nodeId}: ${(load.magnitude * du.force.factor).toFixed(2)} ${du.force.unit}`}</title>
+                <line x1={endX} y1={endY} x2={headX} y2={headY} stroke={color} strokeWidth={load.category === "live" ? 3 : 2.5} strokeDasharray={load.category === "live" ? "6 2" : undefined} />
+                <polygon points={`${headX},${headY} ${baseX + sideX},${baseY + sideY} ${baseX - sideX},${baseY - sideY}`} fill={color} />
+                <text x={endX + 5} y={endY - 5} className="text-[9px] font-semibold" fill={color} stroke="hsl(var(--background))" strokeWidth="2" paintOrder="stroke">
+                  {categoryLabel} {(load.magnitude * du.force.factor).toFixed(1)} {du.force.unit}
+                </text>
               </g>
             );
           })}
 
           {/* Legend */}
           <g transform={`translate(${p.svgWidth - 130}, 20)`}>
-            <rect width={120} height={p.structureType === 'frame' ? 80 : 60} className="fill-background/80 stroke-border" rx={4} />
+            <rect width={120} height={p.structureType === 'frame' ? 100 : 80} className="fill-background/90 stroke-border" rx={4} />
             <line x1={10} y1={18} x2={40} y2={18} stroke="hsl(142 76% 36%)" strokeWidth={3} />
             <text x={48} y={22} className="fill-foreground text-[10px]">Tension</text>
             <line x1={10} y1={38} x2={40} y2={38} stroke="hsl(0 84% 60%)" strokeWidth={3} />
             <text x={48} y={42} className="fill-foreground text-[10px]">Compression</text>
+            {p.pointLoads.some((load) => load.category === "live") && (
+              <>
+                <line x1={10} y1={58} x2={40} y2={58} stroke={loadColorByCategory.live} strokeWidth={3} strokeDasharray="6 2" />
+                <text x={48} y={62} className="fill-foreground text-[10px]">Live load (L)</text>
+              </>
+            )}
             {p.structureType === 'frame' && (
               <>
-                <rect x={10} y={52} width={8} height={8} className="fill-foreground" transform="rotate(45 14 56)" />
-                <text x={48} y={62} className="fill-foreground text-[10px]">Rigid Joint</text>
+                <rect x={10} y={72} width={8} height={8} className="fill-foreground" transform="rotate(45 14 76)" />
+                <text x={48} y={82} className="fill-foreground text-[10px]">Rigid Joint</text>
               </>
             )}
           </g>

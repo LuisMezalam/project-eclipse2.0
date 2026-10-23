@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Play, ArrowDown, Link2, Check } from "lucide-react";
 import { type TrussNode, type TrussMember, type PointLoad, type LoadCategory, DEFAULT_COV_BY_CATEGORY } from "@/lib/trussSolver";
-import { type TrussDisplayUnits, type TrussUnitSystem } from "./useTrussAnalysis";
+import { type TrussDisplayUnits, type TrussUnitSystem, type TrussLiveLoadPattern } from "./useTrussAnalysis";
 
 interface TrussConfigPanelProps {
   structureType: 'truss' | 'frame';
@@ -15,6 +15,9 @@ interface TrussConfigPanelProps {
   height: number; setHeight: (v: number) => void;
   numPanels: number; setNumPanels: (v: number) => void;
   appliedLoad: number; setAppliedLoad: (v: number) => void;
+  includeSelfWeight: boolean; setIncludeSelfWeight: (v: boolean) => void;
+  materialUnitWeight: number; setMaterialUnitWeight: (v: number) => void;
+  totalSelfWeight: number;
   generateTruss: (type: string) => void;
   nodes: TrussNode[]; setNodes: (v: TrussNode[]) => void;
   members: TrussMember[]; setMembers: (v: TrussMember[]) => void;
@@ -25,6 +28,7 @@ interface TrussConfigPanelProps {
   startMemberConnection: () => void; finishMemberConnection: () => void;
   memberConnectionMode: boolean; connectionStartNodeId: number | null; builderNotice: string | null;
   addPointLoad: () => void;
+  addLiveLoadPattern: (pattern: TrussLiveLoadPattern, totalMagnitude: number) => number;
   deleteNode: (id: number) => void; deleteMember: (id: number) => void; deletePointLoad: (id: number) => void;
   loadColors: string[];
   unitSystem: TrussUnitSystem; setUnitSystem: (v: TrussUnitSystem) => void;
@@ -37,6 +41,9 @@ export function TrussConfigPanel(p: TrussConfigPanelProps) {
   const du = p.du;
   const [newNodeX, setNewNodeX] = useState(p.spanLength / 2);
   const [newNodeY, setNewNodeY] = useState(p.height / 2);
+  const [liveLoadPattern, setLiveLoadPattern] = useState<TrussLiveLoadPattern>("uniform-top-chord");
+  const [liveLoadTotal, setLiveLoadTotal] = useState(10000);
+  const [liveLoadNotice, setLiveLoadNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setNewNodeX(p.spanLength / 2);
@@ -96,6 +103,80 @@ export function TrussConfigPanel(p: TrussConfigPanelProps) {
               <Button onClick={() => p.generateTruss(p.trussType)} className="w-full"><Play className="h-4 w-4 mr-2" />Generate {p.structureType === 'frame' ? 'Frame' : 'Truss'}</Button>
             </>
           )}
+          <div className="space-y-3 rounded-lg border border-border bg-muted/10 p-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <input
+                type="checkbox"
+                checked={p.includeSelfWeight}
+                onChange={(event) => p.setIncludeSelfWeight(event.currentTarget.checked)}
+                className="h-4 w-4 accent-primary"
+              />
+              Include member self-weight
+            </label>
+            <div>
+              <label className="text-xs text-muted-foreground">Material unit weight ({du.unitWeight.unit})</label>
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                value={(p.materialUnitWeight * du.unitWeight.factor).toFixed(2)}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value >= 0) p.setMaterialUnitWeight(value / du.unitWeight.factor);
+                }}
+                className="mt-1 bg-muted/30"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {p.includeSelfWeight
+                ? `Adds ${ (p.totalSelfWeight * du.force.factor).toFixed(2) } ${du.force.unit} downward; each member’s weight is shared by its end joints.`
+                : `Steel default: ${(77000 * du.unitWeight.factor).toFixed(2)} ${du.unitWeight.unit}. Set γ for your material; weight uses γ × member area × length.`}
+            </p>
+          </div>
+          <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
+            <div>
+              <h4 className="text-sm font-medium text-foreground">Live-load patterns</h4>
+              <p className="mt-1 text-xs text-muted-foreground">Distribute a total vertical load across selected top-chord joints.</p>
+            </div>
+            <Select value={liveLoadPattern} onValueChange={(value) => setLiveLoadPattern(value as TrussLiveLoadPattern)}>
+              <SelectTrigger className="bg-muted/30 border-border"><SelectValue /></SelectTrigger>
+              <SelectContent className="bg-background border-border">
+                <SelectItem value="uniform-top-chord">Uniform top-chord loading</SelectItem>
+                <SelectItem value="alternate-top-chord">Alternate top-chord joints</SelectItem>
+                <SelectItem value="midspan-node">Midspan joint load</SelectItem>
+                <SelectItem value="left-half">Left half of top chord</SelectItem>
+                <SelectItem value="right-half">Right half of top chord</SelectItem>
+              </SelectContent>
+            </Select>
+            <div>
+              <label className="text-xs text-muted-foreground">Total live load ({du.force.unit})</label>
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                value={(liveLoadTotal * du.force.factor).toFixed(2)}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value >= 0) setLiveLoadTotal(value / du.force.factor);
+                }}
+                className="mt-1 bg-muted/30"
+              />
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                const count = p.addLiveLoadPattern(liveLoadPattern, liveLoadTotal);
+                setLiveLoadNotice(count > 0
+                  ? `Added ${count} live-load joint${count === 1 ? "" : "s"}.`
+                  : "Add nodes along the top chord before applying a live-load pattern.");
+              }}
+            >
+              <ArrowDown className="mr-1 h-4 w-4" />Add Live Load Pattern
+            </Button>
+            {liveLoadNotice && <p className="text-xs text-muted-foreground" role="status">{liveLoadNotice}</p>}
+          </div>
           <div className="space-y-3 rounded-lg border border-border bg-muted/10 p-3">
             <div>
               <h4 className="text-sm font-medium text-foreground">Quick Builder</h4>
