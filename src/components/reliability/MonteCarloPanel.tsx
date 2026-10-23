@@ -6,7 +6,7 @@ import { useState } from "react";
 import { ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ScatterChart, Scatter, ReferenceLine } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Play } from "lucide-react";
-import { monteCarloReliability, type ReliabilityResult } from "@/lib/reliability";
+import { monteCarloReliability, type MonteCarloReliabilityResult, type ReliabilityResult } from "@/lib/reliability";
 
 const tooltipStyle = {
   backgroundColor: "hsl(222 47% 9%)",
@@ -21,8 +21,8 @@ interface MonteCarloPanelProps {
   meanS: number;
   covS: number;
   formResult: ReliabilityResult;
-  mcResults: { pf: number; samples: { r: number; s: number; failed: boolean }[] } | null;
-  onMcComplete: (results: { pf: number; samples: { r: number; s: number; failed: boolean }[] }) => void;
+  mcResults: MonteCarloReliabilityResult | null;
+  onMcComplete: (results: MonteCarloReliabilityResult) => void;
 }
 
 export function MonteCarloPanel({ meanR, covR, meanS, covS, formResult, mcResults, onMcComplete }: MonteCarloPanelProps) {

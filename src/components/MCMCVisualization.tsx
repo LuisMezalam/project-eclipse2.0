@@ -20,44 +20,29 @@ export function MCMCVisualization() {
   const [isRunning, setIsRunning] = useState(false);
   const [animatedSamples, setAnimatedSamples] = useState<number[]>([]);
   const [allChains, setAllChains] = useState<number[][]>([]);
+  const [primaryAcceptanceRate, setPrimaryAcceptanceRate] = useState<number | null>(null);
   
   // Generate synthetic data
   const syntheticData = useMemo(() => {
     return Array.from({ length: 10 }, () => normalRandom(1000, 50));
   }, []);
   
-  // Run MCMC for multiple chains
-  const runAllChains = () => {
-    const chains: number[][] = [];
-    for (let c = 0; c < numChains; c++) {
-      const result = generateMCMCTrace(1000, 50, 1000 + c * 50, 100, numSamples, syntheticData);
-      chains.push(result.samples);
-    }
-    setAllChains(chains);
-    return chains;
-  };
-  
-  // Run MCMC
-  const mcmcResult = useMemo(() => {
-    return generateMCMCTrace(1000, 50, 1000, 100, numSamples, syntheticData);
-  }, [numSamples, syntheticData]);
-  
   // Animation effect
   useEffect(() => {
-    if (isRunning && animatedSamples.length < mcmcResult.samples.length) {
+    const primaryChain = allChains[0];
+    if (isRunning && primaryChain && animatedSamples.length < primaryChain.length) {
       const timer = setTimeout(() => {
-        const step = Math.min(10, mcmcResult.samples.length - animatedSamples.length);
+        const step = Math.min(10, primaryChain.length - animatedSamples.length);
         setAnimatedSamples(prev => [
           ...prev,
-          ...mcmcResult.samples.slice(prev.length, prev.length + step)
+          ...primaryChain.slice(prev.length, prev.length + step)
         ]);
       }, 20);
       return () => clearTimeout(timer);
-    } else if (animatedSamples.length >= mcmcResult.samples.length) {
+    } else if (isRunning && primaryChain && animatedSamples.length >= primaryChain.length) {
       setIsRunning(false);
-      runAllChains();
     }
-  }, [isRunning, animatedSamples, mcmcResult.samples]);
+  }, [isRunning, animatedSamples, allChains]);
   
   const traceData = animatedSamples.map((sample, i) => ({
     iteration: i,
@@ -75,6 +60,7 @@ export function MCMCVisualization() {
     const max = Math.max(...postBurnIn);
     const binCount = 30;
     const binWidth = (max - min) / binCount;
+    if (binWidth <= 0) return [{ x: min, count: 1 }];
     
     const bins = Array(binCount).fill(0);
     postBurnIn.forEach(v => {
@@ -90,22 +76,24 @@ export function MCMCVisualization() {
   
   // Convergence diagnostics
   const diagnostics = useMemo(() => {
-    if (animatedSamples.length < 50) {
+    const diagnosticLength = allChains.length > 0
+      ? Math.min(animatedSamples.length, ...allChains.map(chain => chain.length))
+      : animatedSamples.length;
+    if (diagnosticLength < 50) {
       return { ess: 0, rhat: 1, converged: false };
     }
     
-    const burnIn = Math.floor(animatedSamples.length * 0.2);
-    const postBurnIn = animatedSamples.slice(burnIn);
+    const burnIn = Math.floor(diagnosticLength * 0.2);
+    const postBurnIn = animatedSamples.slice(burnIn, diagnosticLength);
     const ess = effectiveSampleSize(postBurnIn);
     
-    // R-hat from multiple chains
     let rhat = 1;
     if (allChains.length >= 2) {
-      const postBurnInChains = allChains.map(chain => chain.slice(burnIn));
+      const postBurnInChains = allChains.map(chain => chain.slice(burnIn, diagnosticLength));
       rhat = gelmanRubinRhat(postBurnInChains);
     }
     
-    const converged = rhat < 1.1 && ess > 100;
+    const converged = allChains.length >= 2 && rhat < 1.1 && ess > 100;
     
     return { ess, rhat, converged };
   }, [animatedSamples, allChains]);
@@ -126,8 +114,14 @@ export function MCMCVisualization() {
   }, [animatedSamples]);
   
   const handleStart = () => {
+    const dataMean = syntheticData.reduce((sum, value) => sum + value, 0) / syntheticData.length;
+    const chainResults = Array.from({ length: numChains }, (_, chainIndex) => {
+      const initialOffset = (chainIndex - (numChains - 1) / 2) * 100;
+      return generateMCMCTrace(1000, 50, 1000, 100, numSamples, syntheticData, dataMean + initialOffset);
+    });
+    setAllChains(chainResults.map(result => result.samples));
+    setPrimaryAcceptanceRate(chainResults[0]?.acceptanceRate ?? null);
     setAnimatedSamples([]);
-    setAllChains([]);
     setIsRunning(true);
   };
   
@@ -135,6 +129,7 @@ export function MCMCVisualization() {
     setIsRunning(false);
     setAnimatedSamples([]);
     setAllChains([]);
+    setPrimaryAcceptanceRate(null);
   };
   
   // Calculate posterior mean
@@ -239,7 +234,7 @@ export function MCMCVisualization() {
           <div className="p-3 rounded-lg bg-muted/30">
             <div className="text-muted-foreground">Acceptance Rate</div>
             <div className="text-lg text-foreground">
-              {(mcmcResult.acceptanceRate * 100).toFixed(1)}%
+              {primaryAcceptanceRate === null ? '—' : `${(primaryAcceptanceRate * 100).toFixed(1)}%`}
             </div>
           </div>
           <div className="p-3 rounded-lg bg-muted/30">

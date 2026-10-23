@@ -36,6 +36,7 @@ import {
   tormReliabilityIndex,
   analyzeHigherOrderConvergence,
   calculateReliabilityMarginOfError,
+  solvePlanarTruss,
   importanceSamplingMonteCarlo,
   subsetSimulationMonteCarlo,
   reliabilityBasedDesignOptimization,
@@ -194,52 +195,21 @@ export function useTrussAnalysis() {
     setPointLoads(newLoads);
   }, [spanLength, height, numPanels, appliedLoad, structureType]);
 
-  // Method of joints analysis
-  const memberResults = useMemo<MemberResult[]>(() => {
-    const results: MemberResult[] = [];
-    const totalLoad = pointLoads.reduce((sum, load) => sum + load.magnitude, 0);
-
-    for (const member of members) {
-      const n1 = nodes.find(n => n.id === member.startNode);
-      const n2 = nodes.find(n => n.id === member.endNode);
-      if (!n1 || !n2) continue;
-
-      const dx = n2.x - n1.x;
-      const dy = n2.y - n1.y;
-      const maxY = Math.max(...nodes.map(n => n.y));
-      const isTopChord = n1.y === maxY && n2.y === maxY;
-      const isBottomChord = n1.y === 0 && n2.y === 0;
-      const isDiagonal = !isTopChord && !isBottomChord;
-
-      let force = 0;
-      if (isTopChord) {
-        force = -totalLoad * spanLength / (8 * height);
-      } else if (isBottomChord) {
-        force = totalLoad * spanLength / (8 * height);
-      } else if (isDiagonal) {
-        force = totalLoad / (2 * Math.sin(Math.atan2(Math.abs(dy), Math.abs(dx))));
-        if (Math.abs(n1.x + n2.x) / 2 < spanLength / 2) {
-          force = -Math.abs(force);
-        }
-      }
-
-      const stress = force / member.area;
-      const strain = stress / member.elasticModulus;
-
-      results.push({
-        memberId: member.id,
-        force,
-        stress,
-        strain,
-        type: force > 100 ? 'tension' : force < -100 ? 'compression' : 'zero'
-      });
+  // Axial member forces from the 2D direct stiffness method.
+  const { memberResults, memberAnalysisError } = useMemo(() => {
+    if (structureType === 'frame') {
+      return {
+        memberResults: [] as MemberResult[],
+        memberAnalysisError: 'Rigid-jointed frame bending is not modeled by this axial truss solver. Select Truss (Pin Joints) for a valid analysis.',
+      };
     }
-    return results;
-  }, [nodes, members, spanLength, height, pointLoads]);
+    const result = solvePlanarTruss(nodes, members, pointLoads);
+    return { memberResults: result.memberResults, memberAnalysisError: result.error };
+  }, [nodes, members, pointLoads, structureType]);
 
   // Truss System Reliability Analysis
   const trussReliability = useMemo<TrussSystemReliability>(() => {
-    if (!showReliability || members.length === 0 || memberResults.length === 0) {
+    if (!showReliability || memberAnalysisError || members.length === 0 || memberResults.length === 0) {
       return {
         systemType: 'series', systemBeta: 0, systemBetaFOSM: 0, systemBetaSORM: 0, systemBetaTORM: 0,
         systemPf: 1, systemPfFOSM: 1, systemPfSORM: 1, systemPfTORM: 1,
@@ -333,11 +303,11 @@ export function useTrussAnalysis() {
       boundsPf: { lower: pfLowerBound, upper: pfUpperBound },
       criticalPath, memberReliabilities, higherOrderAnalysis, systemMarginOfError
     };
-  }, [members, memberResults, pointLoads, showReliability]);
+  }, [members, memberResults, pointLoads, showReliability, memberAnalysisError]);
 
   // Monte Carlo Validation
   const mcResults = useMemo(() => {
-    if (!runMonteCarlo || !showReliability || members.length === 0) return null;
+    if (!runMonteCarlo || !showReliability || memberAnalysisError || memberResults.length === 0) return null;
     const _ = mcTrigger;
     let failureCount = 0;
     const convergenceHistory: { samples: number; pf: number }[] = [];
@@ -365,7 +335,7 @@ export function useTrussAnalysis() {
     const estimatedPf = failureCount / mcSamples;
     const estimatedBeta = estimatedPf > 0 && estimatedPf < 1 ? -normalInverseCDF(estimatedPf) : (estimatedPf === 0 ? 5 : 0);
     return { numSamples: mcSamples, failureCount, estimatedPf, estimatedBeta: Math.max(0, Math.min(estimatedBeta, 10)), convergenceHistory };
-  }, [members, memberResults, pointLoads, mcSamples, mcTrigger, runMonteCarlo, showReliability]);
+  }, [members, memberResults, pointLoads, mcSamples, mcTrigger, runMonteCarlo, showReliability, memberAnalysisError]);
 
   // Importance Sampling
   const isResults = useMemo<ImportanceSamplingResult | null>(() => {
@@ -564,7 +534,7 @@ export function useTrussAnalysis() {
     ssSamplesPerLevel, setSsSamplesPerLevel, setSsTrigger,
     enableRBDO, setEnableRBDO, rbdoTargetBeta, setRbdoTargetBeta, setRbdoTrigger,
     // Computed
-    memberResults, trussReliability, mcResults, isResults,
+    memberResults, memberAnalysisError, trussReliability, mcResults, isResults,
     lrfdResults, criticalLRFD, sensitivityResults, topSensitivityFactors,
     ssResults, rbdoResults, applyRBDOResults,
     // Viz

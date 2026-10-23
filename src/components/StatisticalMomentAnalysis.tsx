@@ -72,8 +72,7 @@ export function StatisticalMomentAnalysis() {
   ]);
 
   // Derive effective values from context when synced
-  const effectiveBeamLength = ctx.isSynced ? ctx.beamLength : beamLength;
-  const effectiveCriticalLoad = ctx.isSynced ? ctx.resistanceMean : criticalLoad;
+  const analysisBeamLength = ctx.isSynced ? ctx.beamLength : beamLength;
 
   // When synced, derive load levels from context moments
   useEffect(() => {
@@ -93,6 +92,10 @@ export function StatisticalMomentAnalysis() {
   // Normalize probabilities
   const normalizedLevels = useMemo(() => {
     const totalProb = loadLevels.reduce((sum, l) => sum + l.probability, 0);
+    if (totalProb <= 0) {
+      const equalProbability = 1 / loadLevels.length;
+      return loadLevels.map(level => ({ ...level, probability: equalProbability }));
+    }
     return loadLevels.map(l => ({
       ...l,
       probability: l.probability / totalProb
@@ -116,20 +119,20 @@ export function StatisticalMomentAnalysis() {
       (sum, l) => sum + l.probability * Math.pow(l.load - mean, 3), 
       0
     );
-    const skewness = m3 / Math.pow(stdDev, 3);
+    const skewness = stdDev > 0 ? m3 / Math.pow(stdDev, 3) : 0;
     
     // Fourth central moment: Kurtosis (Eq. 9)
     const m4 = normalizedLevels.reduce(
       (sum, l) => sum + l.probability * Math.pow(l.load - mean, 4), 
       0
     );
-    const kurtosis = m4 / Math.pow(variance, 2);
+    const kurtosis = variance > 0 ? m4 / Math.pow(variance, 2) : 0;
     
-    // Moment variance for beam (Eq. 7): Var(M) = L²/8 × Var(w)
-    const momentVariance = (Math.pow(beamLength, 2) / 8) * variance;
+    // For M = wL²/8, Var(M) = (L²/8)² Var(w) = L⁴/64 Var(w).
+    const momentVariance = (Math.pow(analysisBeamLength, 4) / 64) * variance;
     
     return { mean, variance, stdDev, skewness, kurtosis, momentVariance };
-  }, [normalizedLevels, beamLength]);
+  }, [normalizedLevels, analysisBeamLength]);
 
   // Push local moments back to context when NOT synced (bidirectional sync)
   useEffect(() => {
@@ -141,12 +144,14 @@ export function StatisticalMomentAnalysis() {
     }
   }, [moments, ctx.isSynced]);
   const reliability = useMemo(() => {
-    const totalLoad = moments.mean * beamLength; // kN (total load on beam)
-    const loadStdDev = moments.stdDev * beamLength;
-    const beta = (criticalLoad - totalLoad) / loadStdDev;
+    const totalLoad = moments.mean * analysisBeamLength; // kN (total load on beam)
+    const loadStdDev = moments.stdDev * analysisBeamLength;
+    const beta = loadStdDev > 0
+      ? (criticalLoad - totalLoad) / loadStdDev
+      : totalLoad < criticalLoad ? Infinity : -Infinity;
     const pf = normalCDF(-beta);
     return { totalLoad, loadStdDev, beta, pf };
-  }, [moments, beamLength, criticalLoad]);
+  }, [moments, analysisBeamLength, criticalLoad]);
 
   // Polynomial Chaos Expansion (PCE) for uncertainty propagation
   const pceResults = useMemo(() => {
@@ -154,7 +159,7 @@ export function StatisticalMomentAnalysis() {
     // M = wL²/8, where w = mean + stdDev * xi (xi is standard normal)
     const responseFunction = (xi: number): number => {
       const w = moments.mean + moments.stdDev * xi;
-      return (w * Math.pow(beamLength, 2)) / 8; // Maximum bending moment
+      return (w * Math.pow(analysisBeamLength, 2)) / 8; // Maximum bending moment
     };
     
     // Compute PCE coefficients
@@ -213,7 +218,7 @@ export function StatisticalMomentAnalysis() {
       histogram,
       basisData
     };
-  }, [moments, beamLength, pceOrder]);
+  }, [moments, analysisBeamLength, pceOrder]);
 
   // Multi-dimensional PCE for multiple uncertain inputs
   const multiDimPCEResults = useMemo(() => {
@@ -232,7 +237,7 @@ export function StatisticalMomentAnalysis() {
       const I_m4 = I * 1e-8; // cm⁴ to m⁴
       
       // Maximum deflection for simply supported beam with UDL
-      const delta = (5 * w * Math.pow(beamLength, 4)) / (384 * E_kNm2 * I_m4);
+      const delta = (5 * w * Math.pow(analysisBeamLength, 4)) / (384 * E_kNm2 * I_m4);
       return delta * 1000; // Convert to mm
     };
     
@@ -289,7 +294,7 @@ export function StatisticalMomentAnalysis() {
       histogram,
       dim
     };
-  }, [multiDimInputs, beamLength, pceOrder]);
+  }, [multiDimInputs, analysisBeamLength, pceOrder]);
 
   // Adaptive PCE with cross-validation order selection
   const adaptivePCEResults = useMemo(() => {
@@ -304,7 +309,7 @@ export function StatisticalMomentAnalysis() {
       const E_kNm2 = E * 1e6;
       const I_m4 = I * 1e-8;
       
-      const delta = (5 * w * Math.pow(beamLength, 4)) / (384 * E_kNm2 * I_m4);
+      const delta = (5 * w * Math.pow(analysisBeamLength, 4)) / (384 * E_kNm2 * I_m4);
       return delta * 1000; // mm
     };
     
@@ -369,7 +374,7 @@ export function StatisticalMomentAnalysis() {
       bootstrapCI,
       analyticalCI
     };
-  }, [multiDimInputs, beamLength, adaptiveMaxOrder, useSparse, confidenceLevel]);
+  }, [multiDimInputs, analysisBeamLength, adaptiveMaxOrder, useSparse, confidenceLevel]);
 
   // Generate PDF visualization data
   const pdfData = useMemo(() => {
@@ -490,9 +495,9 @@ export function StatisticalMomentAnalysis() {
             </div>
             
             <div>
-              <label className="text-xs text-muted-foreground">Beam Length L: {beamLength} m</label>
+              <label className="text-xs text-muted-foreground">Beam Length L: {analysisBeamLength} m</label>
               <Slider
-                value={[beamLength]}
+                value={[analysisBeamLength]}
                 onValueChange={([v]) => {
                   setBeamLength(v);
                   if (ctx.isSynced) ctx.setBeamLength(v);
@@ -509,12 +514,16 @@ export function StatisticalMomentAnalysis() {
                 value={[criticalLoad]}
                 onValueChange={([v]) => {
                   setCriticalLoad(v);
-                  if (ctx.isSynced) ctx.setResistanceMean(v);
                 }}
                 min={100}
                 max={1000}
                 step={10}
               />
+              {ctx.isSynced && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This local capacity is in kN. Shared resistance is in MPa, so it cannot be substituted without section geometry.
+                </p>
+              )}
             </div>
           </div>
           

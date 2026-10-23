@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { 
   generateDesignSpectrum, 
   generateMCESpectrum,
+  getSiteCoefficients,
+  getSpectralAccelerationAtPeriod,
   seismicHazardPresets,
   SeismicParameters
 } from "@/lib/dynamicsFEA";
@@ -25,11 +27,11 @@ export function ResponseSpectrum() {
     if (isCustom) {
       return { Ss: customSs, S1: customS1, siteClass, TL };
     }
-    return seismicHazardPresets[selectedLocation];
+    return { ...seismicHazardPresets[selectedLocation], siteClass };
   }, [selectedLocation, customSs, customS1, siteClass, TL, isCustom]);
   
-  const designSpectrum = useMemo(() => generateDesignSpectrum(params), [params]);
-  const mceSpectrum = useMemo(() => generateMCESpectrum(params), [params]);
+  const designSpectrum = useMemo(() => generateDesignSpectrum(params, [structurePeriod]), [params, structurePeriod]);
+  const mceSpectrum = useMemo(() => generateMCESpectrum(params, [structurePeriod]), [params, structurePeriod]);
   
   // Combined data for chart
   const spectrumData = useMemo(() => {
@@ -42,16 +44,8 @@ export function ResponseSpectrum() {
     }));
   }, [designSpectrum, mceSpectrum]);
   
-  // Get Sa at structure period
-  const getSpectralAcceleration = (T: number, spectrum: typeof designSpectrum) => {
-    const closest = spectrum.reduce((prev, curr) => 
-      Math.abs(curr.T - T) < Math.abs(prev.T - T) ? curr : prev
-    );
-    return closest.Sa;
-  };
-  
-  const designSa = getSpectralAcceleration(structurePeriod, designSpectrum);
-  const mceSa = getSpectralAcceleration(structurePeriod, mceSpectrum);
+  const designSa = getSpectralAccelerationAtPeriod(structurePeriod, params, 'design');
+  const mceSa = getSpectralAccelerationAtPeriod(structurePeriod, params, 'mce');
   
   // Seismic design category
   const getSDC = (SDS: number, SD1: number): string => {
@@ -62,8 +56,9 @@ export function ResponseSpectrum() {
     return 'A';
   };
   
-  const SDS = (2/3) * params.Ss * (siteClass === 'D' ? 1.1 : 1.0);
-  const SD1 = (2/3) * params.S1 * (siteClass === 'D' ? 1.5 : 1.0);
+  const { Fa, Fv } = getSiteCoefficients(params.siteClass, params.Ss, params.S1);
+  const SDS = (2 / 3) * Fa * params.Ss;
+  const SD1 = (2 / 3) * Fv * params.S1;
   const sdc = getSDC(SDS, SD1);
 
   return (

@@ -35,6 +35,7 @@ export interface FEAResult {
   reactions: number[];
   internalForces: { element: number; shear: number[]; moment: number[] }[];
   modeShapes: { frequency: number; shape: number[] }[];
+  error?: string;
 }
 
 // Generate mesh for beam
@@ -124,11 +125,11 @@ export function applyBoundaryConditions(
   const freeDOFs: number[] = [];
   
   for (let i = 0; i < nodes.length; i++) {
+    if (!nodes[i].isFixed && !nodes[i].isRoller) {
+      freeDOFs.push(i * 2); // Vertical displacement is restrained by pins and rollers.
+    }
     if (!nodes[i].isFixed) {
-      freeDOFs.push(i * 2);     // Displacement DOF
-      if (!nodes[i].isRoller) {
-        freeDOFs.push(i * 2 + 1); // Rotation DOF
-      }
+      freeDOFs.push(i * 2 + 1); // Pins and rollers leave rotation free; fixed supports restrain it.
     }
   }
   
@@ -149,7 +150,10 @@ export function applyBoundaryConditions(
 // Solve linear system using Gaussian elimination
 export function solveLinearSystem(A: number[][], b: number[]): number[] {
   const n = b.length;
+  if (A.length !== n || A.some(row => row.length !== n)) throw new Error('Matrix dimensions do not match the right-hand side.');
   const aug = A.map((row, i) => [...row, b[i]]);
+  const matrixScale = Math.max(...A.flat().map(Math.abs), 0);
+  const pivotTolerance = Math.max(1e-30, matrixScale * 1e-12);
   
   // Forward elimination
   for (let i = 0; i < n; i++) {
@@ -161,7 +165,9 @@ export function solveLinearSystem(A: number[][], b: number[]): number[] {
     }
     [aug[i], aug[maxRow]] = [aug[maxRow], aug[i]];
     
-    if (Math.abs(aug[i][i]) < 1e-10) continue;
+    if (!Number.isFinite(aug[i][i]) || Math.abs(aug[i][i]) <= pivotTolerance) {
+      throw new Error('The reduced stiffness matrix is singular. Check the beam supports.');
+    }
     
     for (let k = i + 1; k < n; k++) {
       const factor = aug[k][i] / aug[i][i];
@@ -174,7 +180,7 @@ export function solveLinearSystem(A: number[][], b: number[]): number[] {
   // Back substitution
   const x: number[] = Array(n).fill(0);
   for (let i = n - 1; i >= 0; i--) {
-    if (Math.abs(aug[i][i]) < 1e-10) continue;
+    if (Math.abs(aug[i][i]) <= pivotTolerance) throw new Error('The reduced stiffness matrix is singular. Check the beam supports.');
     x[i] = aug[i][n];
     for (let j = i + 1; j < n; j++) {
       x[i] -= aug[i][j] * x[j];
@@ -191,7 +197,8 @@ export function performFEAAnalysis(
   numElements: number,
   loads: { position: number; force: number; moment?: number }[],
   supports: { position: number; type: 'fixed' | 'pinned' | 'roller' }[],
-  EI: number = 1e6
+  EI: number = 1e6,
+  massPerLength: number = 250
 ): FEAResult {
   const { nodes, elements } = generateBeamMesh(beamLength, numElements, EI);
   
@@ -224,7 +231,21 @@ export function performFEAAnalysis(
   // Assemble and solve
   const K = assembleGlobalStiffness(nodes, elements);
   const { Kred, Fred, freeDOFs } = applyBoundaryConditions(K, F, nodes);
-  const ured = solveLinearSystem(Kred, Fred);
+  let ured: number[];
+  try {
+    ured = solveLinearSystem(Kred, Fred);
+  } catch (error) {
+    return {
+      nodes,
+      elements,
+      globalStiffness: K,
+      displacements: Array(nodes.length * 2).fill(0),
+      reactions: Array(nodes.length * 2).fill(0),
+      internalForces: [],
+      modeShapes: [],
+      error: error instanceof Error ? error.message : 'Unable to solve the beam stiffness matrix.',
+    };
+  }
   
   // Map back to global DOFs
   const u: number[] = Array(nodes.length * 2).fill(0);
@@ -272,7 +293,7 @@ export function performFEAAnalysis(
   }
   
   // Simple modal analysis (first few modes)
-  const modeShapes = computeModeShapes(nodes, elements, 3);
+  const modeShapes = computeModeShapes(nodes, elements, freeDOFs, 3, massPerLength);
   
   return {
     nodes,
@@ -285,65 +306,167 @@ export function performFEAAnalysis(
   };
 }
 
-// Compute mode shapes using power iteration
+// Solve the constrained generalized eigenproblem Kφ = ω²Mφ using a
+// consistent Euler-Bernoulli beam mass matrix and a symmetric Jacobi solver.
 function computeModeShapes(
   nodes: FEANode[],
   elements: FEAElement[],
-  numModes: number
+  freeDOFs: number[],
+  numModes: number,
+  massPerLength: number,
 ): { frequency: number; shape: number[] }[] {
-  const n = nodes.length;
-  const modes: { frequency: number; shape: number[] }[] = [];
-  
-  // Simplified mass matrix (lumped)
-  const M: number[] = Array(n).fill(1); // Unit mass per node
-  
-  // Extract displacement DOFs from stiffness
+  const globalDOFs = nodes.length * 2;
+  if (freeDOFs.length === 0 || !Number.isFinite(massPerLength) || massPerLength <= 0) return [];
+
   const K = assembleGlobalStiffness(nodes, elements);
-  
-  // Power iteration for first mode (simplified)
-  for (let mode = 0; mode < numModes; mode++) {
-    let phi: number[] = Array(n).fill(1).map(() => Math.random());
-    let omega2 = 0;
-    
-    for (let iter = 0; iter < 100; iter++) {
-      // Extract displacement DOFs only
-      const Kphi: number[] = Array(n).fill(0);
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < n; j++) {
-          Kphi[i] += K[i * 2][j * 2] * phi[j];
+  const M = Array.from({ length: globalDOFs }, () => Array(globalDOFs).fill(0));
+  for (const element of elements) {
+    const L = element.length;
+    const factor = massPerLength * L / 420;
+    const localMass = [
+      [156, 22 * L, 54, -13 * L],
+      [22 * L, 4 * L * L, 13 * L, -3 * L * L],
+      [54, 13 * L, 156, -22 * L],
+      [-13 * L, -3 * L * L, -22 * L, 4 * L * L],
+    ].map(row => row.map(value => value * factor));
+    const dofs = [2 * element.node1, 2 * element.node1 + 1, 2 * element.node2, 2 * element.node2 + 1];
+    for (let row = 0; row < 4; row++) {
+      for (let column = 0; column < 4; column++) M[dofs[row]][dofs[column]] += localMass[row][column];
+    }
+  }
+
+  const reducedK = freeDOFs.map(row => freeDOFs.map(column => K[row][column]));
+  const reducedM = freeDOFs.map(row => freeDOFs.map(column => M[row][column]));
+  const lower = choleskyFactor(reducedM);
+  if (!lower) return [];
+
+  const inverseLower = invertLowerTriangular(lower);
+  const transformedK = multiplyMatrices(multiplyMatrices(inverseLower, reducedK), transposeMatrix(inverseLower));
+  const { values, vectors } = symmetricJacobiEigen(transformedK);
+  const sortedEigenvalues = values
+    .map((value, index) => ({ value, index }))
+    .filter(entry => Number.isFinite(entry.value) && entry.value > 0)
+    .sort((a, b) => a.value - b.value)
+    .slice(0, numModes);
+  const freeIndex = new Map<number, number>(freeDOFs.map((dof, index) => [dof, index] as const));
+
+  return sortedEigenvalues.map(({ value, index }) => {
+    // The eigenvectors of L⁻¹KL⁻ᵀ map back through L⁻ᵀ to physical DOFs.
+    const reducedShape = Array.from({ length: inverseLower.length }, (_, dof) =>
+      inverseLower.reduce((sum, row, rowIndex) => sum + row[dof] * vectors[rowIndex][index], 0),
+    );
+    const rawShape = nodes.map((_, nodeIndex) => {
+      const reducedIndex = freeIndex.get(2 * nodeIndex);
+      return reducedIndex === undefined ? 0 : reducedShape[reducedIndex];
+    });
+    const maxAmplitude = Math.max(...rawShape.map(Math.abs), 0);
+    const shape = maxAmplitude > 0 ? rawShape.map(amplitude => amplitude / maxAmplitude) : rawShape;
+    return { frequency: Math.sqrt(value) / (2 * Math.PI), shape };
+  });
+}
+
+function choleskyFactor(matrix: number[][]): number[][] | null {
+  const n = matrix.length;
+  const lower = Array.from({ length: n }, () => Array(n).fill(0));
+  const scale = Math.max(...matrix.map((row, index) => Math.abs(row[index])), 0);
+  const tolerance = Math.max(1e-30, scale * 1e-14);
+  for (let row = 0; row < n; row++) {
+    for (let column = 0; column <= row; column++) {
+      let value = matrix[row][column];
+      for (let k = 0; k < column; k++) value -= lower[row][k] * lower[column][k];
+      if (row === column) {
+        if (!Number.isFinite(value) || value <= tolerance) return null;
+        lower[row][column] = Math.sqrt(value);
+      } else {
+        lower[row][column] = value / lower[column][column];
+      }
+    }
+  }
+  return lower;
+}
+
+function invertLowerTriangular(lower: number[][]): number[][] {
+  const n = lower.length;
+  const inverse = Array.from({ length: n }, () => Array(n).fill(0));
+  for (let column = 0; column < n; column++) {
+    for (let row = 0; row < n; row++) {
+      let value = row === column ? 1 : 0;
+      for (let k = 0; k < row; k++) value -= lower[row][k] * inverse[k][column];
+      inverse[row][column] = value / lower[row][row];
+    }
+  }
+  return inverse;
+}
+
+function multiplyMatrices(left: number[][], right: number[][]): number[][] {
+  const rows = left.length;
+  const inner = right.length;
+  const columns = right[0]?.length ?? 0;
+  const result = Array.from({ length: rows }, () => Array(columns).fill(0));
+  for (let row = 0; row < rows; row++) {
+    for (let k = 0; k < inner; k++) {
+      const value = left[row][k];
+      for (let column = 0; column < columns; column++) result[row][column] += value * right[k][column];
+    }
+  }
+  return result;
+}
+
+function transposeMatrix(matrix: number[][]): number[][] {
+  return matrix[0].map((_, column) => matrix.map(row => row[column]));
+}
+
+function symmetricJacobiEigen(matrix: number[][]): { values: number[]; vectors: number[][] } {
+  const n = matrix.length;
+  const A = matrix.map(row => [...row]);
+  const vectors = Array.from({ length: n }, (_, row) => Array.from({ length: n }, (_, column) => row === column ? 1 : 0));
+  const scale = Math.max(...A.flat().map(Math.abs), 0);
+  const tolerance = Math.max(1e-14, scale * 1e-12);
+  const maxIterations = Math.max(50, 50 * n * n);
+
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    let p = 0;
+    let q = 0;
+    let largest = 0;
+    for (let row = 0; row < n; row++) {
+      for (let column = row + 1; column < n; column++) {
+        if (Math.abs(A[row][column]) > largest) {
+          largest = Math.abs(A[row][column]);
+          p = row;
+          q = column;
         }
       }
-      
-      // Normalize
-      const norm = Math.sqrt(phi.reduce((sum, v) => sum + v * v, 0));
-      phi = Kphi.map(v => v / (norm * M[0]));
-      
-      // Rayleigh quotient
-      const kPhi = phi.reduce((sum, v, i) => {
-        let kv = 0;
-        for (let j = 0; j < n; j++) {
-          kv += K[i * 2][j * 2] * phi[j];
-        }
-        return sum + v * kv;
-      }, 0);
-      const mPhi = phi.reduce((sum, v, i) => sum + v * v * M[i], 0);
-      omega2 = kPhi / mPhi;
     }
-    
-    // Normalize final mode shape
-    const maxVal = Math.max(...phi.map(Math.abs));
-    phi = phi.map(v => v / maxVal);
-    
-    modes.push({
-      frequency: Math.sqrt(Math.abs(omega2)) / (2 * Math.PI),
-      shape: phi
-    });
-    
-    // Deflate for next mode (simplified)
-    // In practice, would use proper Gram-Schmidt orthogonalization
+    if (largest <= tolerance || p === q) break;
+
+    const app = A[p][p];
+    const aqq = A[q][q];
+    const apq = A[p][q];
+    const tau = (aqq - app) / (2 * apq);
+    const t = (tau >= 0 ? 1 : -1) / (Math.abs(tau) + Math.sqrt(1 + tau * tau));
+    const c = 1 / Math.sqrt(1 + t * t);
+    const s = t * c;
+
+    for (let k = 0; k < n; k++) {
+      if (k === p || k === q) continue;
+      const akp = A[k][p];
+      const akq = A[k][q];
+      A[k][p] = A[p][k] = c * akp - s * akq;
+      A[k][q] = A[q][k] = s * akp + c * akq;
+    }
+    A[p][p] = app - t * apq;
+    A[q][q] = aqq + t * apq;
+    A[p][q] = A[q][p] = 0;
+
+    for (let k = 0; k < n; k++) {
+      const vkp = vectors[k][p];
+      const vkq = vectors[k][q];
+      vectors[k][p] = c * vkp - s * vkq;
+      vectors[k][q] = s * vkp + c * vkq;
+    }
   }
-  
-  return modes;
+
+  return { values: A.map((row, index) => row[index]), vectors };
 }
 
 // ============================================================================
@@ -812,7 +935,7 @@ export interface ResponseSpectrumPoint {
 }
 
 // Site coefficients (ASCE 7-22 simplified)
-function getSiteCoefficients(siteClass: string, Ss: number, S1: number): { Fa: number; Fv: number } {
+export function getSiteCoefficients(siteClass: string, Ss: number, S1: number): { Fa: number; Fv: number } {
   const siteFactors: Record<string, { Fa: number; Fv: number }> = {
     'A': { Fa: 0.8, Fv: 0.8 },
     'B': { Fa: 0.9, Fv: 0.8 },
@@ -832,45 +955,43 @@ function getSiteCoefficients(siteClass: string, Ss: number, S1: number): { Fa: n
   return { Fa, Fv };
 }
 
+export function getSpectralAccelerationAtPeriod(
+  period: number,
+  params: SeismicParameters,
+  spectrumType: 'design' | 'mce',
+): number {
+  if (!Number.isFinite(period) || period < 0) return 0;
+  const { Fa, Fv } = getSiteCoefficients(params.siteClass, params.Ss, params.S1);
+  const designSpectrum = spectrumType === 'design';
+  const plateau = designSpectrum ? (2 / 3) * Fa * params.Ss : Fa * params.Ss;
+  const oneSecond = designSpectrum ? (2 / 3) * Fv * params.S1 : Fv * params.S1;
+  const T0 = 0.2 * oneSecond / plateau;
+  const Ts = oneSecond / plateau;
+
+  if (period < T0) return plateau * (0.4 + 0.6 * period / T0);
+  if (period <= Ts) return plateau;
+  if (period <= params.TL) return oneSecond / period;
+  return oneSecond * params.TL / (period * period);
+}
+
+function getResponseSpectrumPeriods(additionalPeriods: number[] = []): number[] {
+  const standardPeriods = [
+    0, 0.01, 0.02, 0.03, 0.05, 0.075, 0.1, 0.15, 0.2,
+    ...Array.from({ length: 38 }, (_, i) => 0.25 + i * 0.1),
+    4.0, 5.0, 6.0, 8.0, 10.0,
+  ];
+  return [...new Set([...standardPeriods, ...additionalPeriods.filter(period => Number.isFinite(period) && period >= 0)])]
+    .sort((a, b) => a - b);
+}
+
 // Generate ASCE 7 Design Response Spectrum
-export function generateDesignSpectrum(params: SeismicParameters): ResponseSpectrumPoint[] {
-  const { Ss, S1, siteClass, TL } = params;
-  const { Fa, Fv } = getSiteCoefficients(siteClass, Ss, S1);
-  
-  // Design spectral acceleration parameters
-  const SDS = (2/3) * Fa * Ss;
-  const SD1 = (2/3) * Fv * S1;
-  
-  // Characteristic periods
-  const T0 = 0.2 * SD1 / SDS;
-  const Ts = SD1 / SDS;
+export function generateDesignSpectrum(params: SeismicParameters, additionalPeriods: number[] = []): ResponseSpectrumPoint[] {
   
   const spectrum: ResponseSpectrumPoint[] = [];
   const g = 9810; // mm/s²
-  
-  // Generate points from T=0 to T=4s
-  const periods = [
-    0, 0.01, 0.02, 0.03, 0.05, 0.075, 0.1, 0.15, 0.2,
-    ...Array.from({ length: 38 }, (_, i) => 0.25 + i * 0.1),
-    4.0, 5.0, 6.0, 8.0, 10.0
-  ];
-  
+  const periods = getResponseSpectrumPeriods(additionalPeriods);
   for (const T of periods) {
-    let Sa: number;
-    
-    if (T < T0) {
-      // Ascending branch
-      Sa = SDS * (0.4 + 0.6 * T / T0);
-    } else if (T <= Ts) {
-      // Constant acceleration region
-      Sa = SDS;
-    } else if (T <= TL) {
-      // Constant velocity region (1/T decay)
-      Sa = SD1 / T;
-    } else {
-      // Constant displacement region (1/T² decay)
-      Sa = SD1 * TL / (T * T);
-    }
+    const Sa = getSpectralAccelerationAtPeriod(T, params, 'design');
     
     // Spectral displacement and velocity
     const omega = T > 0 ? (2 * Math.PI / T) : Infinity;
@@ -884,38 +1005,13 @@ export function generateDesignSpectrum(params: SeismicParameters): ResponseSpect
 }
 
 // Generate MCE (Maximum Considered Earthquake) Spectrum
-export function generateMCESpectrum(params: SeismicParameters): ResponseSpectrumPoint[] {
-  const { Ss, S1, siteClass, TL } = params;
-  const { Fa, Fv } = getSiteCoefficients(siteClass, Ss, S1);
-  
-  // MCE spectral acceleration parameters (not reduced by 2/3)
-  const SMS = Fa * Ss;
-  const SM1 = Fv * S1;
-  
-  const T0 = 0.2 * SM1 / SMS;
-  const Ts = SM1 / SMS;
+export function generateMCESpectrum(params: SeismicParameters, additionalPeriods: number[] = []): ResponseSpectrumPoint[] {
   
   const spectrum: ResponseSpectrumPoint[] = [];
   const g = 9810;
-  
-  const periods = [
-    0, 0.01, 0.02, 0.03, 0.05, 0.075, 0.1, 0.15, 0.2,
-    ...Array.from({ length: 38 }, (_, i) => 0.25 + i * 0.1),
-    4.0, 5.0, 6.0, 8.0, 10.0
-  ];
-  
+  const periods = getResponseSpectrumPeriods(additionalPeriods);
   for (const T of periods) {
-    let Sa: number;
-    
-    if (T < T0) {
-      Sa = SMS * (0.4 + 0.6 * T / T0);
-    } else if (T <= Ts) {
-      Sa = SMS;
-    } else if (T <= TL) {
-      Sa = SM1 / T;
-    } else {
-      Sa = SM1 * TL / (T * T);
-    }
+    const Sa = getSpectralAccelerationAtPeriod(T, params, 'mce');
     
     const omega = T > 0 ? (2 * Math.PI / T) : Infinity;
     const Sd = T > 0 ? (Sa * g) / (omega * omega) : 0;

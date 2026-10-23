@@ -11,6 +11,11 @@ export function TrussAnalysis() {
 
   return (
     <div className="space-y-6">
+      {t.memberAnalysisError && (
+        <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {t.memberAnalysisError}
+        </div>
+      )}
       <TrussConfigPanel
         structureType={t.structureType} setStructureType={t.setStructureType}
         trussType={t.trussType} setTrussType={t.setTrussType}
@@ -49,7 +54,7 @@ export function TrussAnalysis() {
         du={t.du}
       />
 
-      {t.showReliability && (
+      {t.showReliability && !t.memberAnalysisError && (
         <TrussReliabilityPanel
           showReliability={t.showReliability} setShowReliability={t.setShowReliability}
           enableLRFD={t.enableLRFD} setEnableLRFD={t.setEnableLRFD}

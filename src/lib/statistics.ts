@@ -167,10 +167,11 @@ export function generateMCMCTrace(
   priorMean: number,
   priorStd: number,
   numSamples: number,
-  dataPoints: number[]
+  dataPoints: number[],
+  initialValue?: number,
 ): { samples: number[]; acceptanceRate: number } {
   const n = dataPoints.length;
-  const dataMean = dataPoints.reduce((a, b) => a + b, 0) / n;
+  const dataMean = n > 0 ? dataPoints.reduce((a, b) => a + b, 0) / n : priorMean;
   
   // Log posterior density (normal likelihood, normal prior)
   const logPosterior = (mu: number): number => {
@@ -184,7 +185,7 @@ export function generateMCMCTrace(
     return logLik + logPrior;
   };
   
-  return metropolisHastings(logPosterior, dataMean, 10, numSamples);
+  return metropolisHastings(logPosterior, initialValue ?? dataMean, 10, numSamples);
 }
 
 // Gaussian Process utilities

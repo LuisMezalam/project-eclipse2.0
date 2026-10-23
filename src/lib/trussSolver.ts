@@ -59,6 +59,13 @@ export interface MemberResult {
   type: 'tension' | 'compression' | 'zero';
 }
 
+export interface TrussEquilibriumResult {
+  memberResults: MemberResult[];
+  displacements: { nodeId: number; x: number; y: number }[];
+  reactions: { nodeId: number; x: number; y: number }[];
+  error?: string;
+}
+
 export interface ReliabilityMarginOfError {
   betaEstimate: number;
   betaStdError: number;
@@ -217,6 +224,158 @@ export const DEFAULT_LOAD_COV = 0.15;
 /** Standard normal PDF */
 export function normalPDF(x: number): number {
   return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+/**
+ * Solve a planar pin-jointed truss with the direct stiffness method.
+ * Forces and displacements use SI units; load angles are measured from
+ * downward vertical, matching the PointLoad UI convention.
+ */
+export function solvePlanarTruss(
+  nodes: TrussNode[],
+  members: TrussMember[],
+  pointLoads: PointLoad[],
+): TrussEquilibriumResult {
+  if (nodes.length === 0 || members.length === 0) {
+    return { memberResults: [], displacements: [], reactions: [], error: 'Add at least one node and member before solving.' };
+  }
+
+  const nodeIndex = new Map<number, number>(nodes.map((node, index) => [node.id, index] as const));
+  const dofCount = nodes.length * 2;
+  const stiffness = Array.from({ length: dofCount }, () => Array(dofCount).fill(0));
+  const force = Array(dofCount).fill(0);
+  const memberGeometry: { member: TrussMember; node1: number; node2: number; length: number; c: number; s: number }[] = [];
+
+  for (const member of members) {
+    const i = nodeIndex.get(member.startNode);
+    const j = nodeIndex.get(member.endNode);
+    if (i === undefined || j === undefined) {
+      return { memberResults: [], displacements: [], reactions: [], error: `Member ${member.id} references a node that does not exist.` };
+    }
+
+    const dx = nodes[j].x - nodes[i].x;
+    const dy = nodes[j].y - nodes[i].y;
+    const length = Math.hypot(dx, dy);
+    if (!Number.isFinite(length) || length <= 1e-12 || !Number.isFinite(member.area) || member.area <= 0 || !Number.isFinite(member.elasticModulus) || member.elasticModulus <= 0) {
+      return { memberResults: [], displacements: [], reactions: [], error: `Member ${member.id} needs distinct end nodes and positive area and elastic modulus.` };
+    }
+
+    const c = dx / length;
+    const s = dy / length;
+    const factor = member.elasticModulus * member.area / length;
+    const direction = [c, s, -c, -s];
+    const dofs = [2 * i, 2 * i + 1, 2 * j, 2 * j + 1];
+    for (let row = 0; row < 4; row++) {
+      for (let column = 0; column < 4; column++) {
+        stiffness[dofs[row]][dofs[column]] += factor * direction[row] * direction[column];
+      }
+    }
+    memberGeometry.push({ member, node1: i, node2: j, length, c, s });
+  }
+
+  for (const [index, node] of nodes.entries()) {
+    if (!Number.isFinite(node.loadX) || !Number.isFinite(node.loadY)) {
+      return { memberResults: [], displacements: [], reactions: [], error: `Node ${node.id} loads must be finite values.` };
+    }
+    force[2 * index] += node.loadX;
+    force[2 * index + 1] += node.loadY;
+  }
+
+  for (const load of pointLoads) {
+    const index = nodeIndex.get(load.nodeId);
+    if (index === undefined) {
+      return { memberResults: [], displacements: [], reactions: [], error: `Load ${load.id} references a node that does not exist.` };
+    }
+    if (!Number.isFinite(load.magnitude) || !Number.isFinite(load.angle)) {
+      return { memberResults: [], displacements: [], reactions: [], error: `Load ${load.id} must have finite magnitude and angle values.` };
+    }
+    const angle = load.angle * Math.PI / 180;
+    force[2 * index] += load.magnitude * Math.sin(angle);
+    force[2 * index + 1] -= load.magnitude * Math.cos(angle);
+  }
+
+  const restrainedDOFs = new Set<number>();
+  nodes.forEach((node, index) => {
+    if (node.supportType === 'pin' || node.supportType === 'fixed' || node.supportType === 'hinge') {
+      restrainedDOFs.add(2 * index);
+      restrainedDOFs.add(2 * index + 1);
+    } else if (node.supportType === 'roller') {
+      restrainedDOFs.add(2 * index + 1);
+    }
+  });
+  const freeDOFs = Array.from({ length: dofCount }, (_, dof) => dof).filter(dof => !restrainedDOFs.has(dof));
+  if (freeDOFs.length === 0) {
+    return { memberResults: [], displacements: [], reactions: [], error: 'The model has no free degrees of freedom.' };
+  }
+
+  const reducedStiffness = freeDOFs.map(row => freeDOFs.map(column => stiffness[row][column]));
+  const reducedForce = freeDOFs.map(dof => force[dof]);
+  const reducedDisplacements = solveTrussLinearSystem(reducedStiffness, reducedForce);
+  if (!reducedDisplacements) {
+    return {
+      memberResults: [], displacements: [], reactions: [],
+      error: 'The truss is unstable or under-supported. Check its supports, member layout, and connections.',
+    };
+  }
+
+  const displacements = Array(dofCount).fill(0);
+  freeDOFs.forEach((dof, index) => { displacements[dof] = reducedDisplacements[index]; });
+
+  const maxAppliedForce = Math.max(...force.map(Math.abs), 0);
+  const zeroForceTolerance = Math.max(1e-8, maxAppliedForce * 1e-10);
+  const memberResults = memberGeometry.map(({ member, node1, node2, length, c, s }) => {
+    const axialExtension =
+      -c * displacements[2 * node1] - s * displacements[2 * node1 + 1] +
+      c * displacements[2 * node2] + s * displacements[2 * node2 + 1];
+    const axialForce = member.elasticModulus * member.area / length * axialExtension;
+    const stress = axialForce / member.area;
+    const strain = stress / member.elasticModulus;
+    return {
+      memberId: member.id,
+      force: axialForce,
+      stress,
+      strain,
+      type: axialForce > zeroForceTolerance ? 'tension' as const : axialForce < -zeroForceTolerance ? 'compression' as const : 'zero' as const,
+    };
+  });
+
+  const fullReactions = stiffness.map((row, index) => row.reduce((sum, value, column) => sum + value * displacements[column], 0) - force[index]);
+  return {
+    memberResults,
+    displacements: nodes.map((node, index) => ({ nodeId: node.id, x: displacements[2 * index], y: displacements[2 * index + 1] })),
+    reactions: nodes.map((node, index) => ({ nodeId: node.id, x: fullReactions[2 * index], y: fullReactions[2 * index + 1] })),
+  };
+}
+
+function solveTrussLinearSystem(matrix: number[][], rhs: number[]): number[] | null {
+  const n = rhs.length;
+  if (n === 0 || matrix.length !== n || matrix.some(row => row.length !== n)) return null;
+  const augmented = matrix.map((row, index) => [...row, rhs[index]]);
+  const scale = Math.max(...matrix.flat().map(Math.abs), 0);
+  const pivotTolerance = Math.max(1e-30, scale * 1e-12);
+
+  for (let column = 0; column < n; column++) {
+    let pivot = column;
+    for (let row = column + 1; row < n; row++) {
+      if (Math.abs(augmented[row][column]) > Math.abs(augmented[pivot][column])) pivot = row;
+    }
+    if (!Number.isFinite(augmented[pivot][column]) || Math.abs(augmented[pivot][column]) <= pivotTolerance) return null;
+    [augmented[column], augmented[pivot]] = [augmented[pivot], augmented[column]];
+
+    for (let row = column + 1; row < n; row++) {
+      const factor = augmented[row][column] / augmented[column][column];
+      for (let entry = column; entry <= n; entry++) augmented[row][entry] -= factor * augmented[column][entry];
+    }
+  }
+
+  const solution = Array(n).fill(0);
+  for (let row = n - 1; row >= 0; row--) {
+    let value = augmented[row][n];
+    for (let column = row + 1; column < n; column++) value -= augmented[row][column] * solution[column];
+    solution[row] = value / augmented[row][row];
+    if (!Number.isFinite(solution[row])) return null;
+  }
+  return solution;
 }
 
 // ============================================================

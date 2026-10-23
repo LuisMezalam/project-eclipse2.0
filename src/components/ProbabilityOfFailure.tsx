@@ -6,7 +6,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { SliderWithInput } from "@/components/SliderWithInput";
-import { reliabilityAnalysis, type ReliabilityResult } from "@/lib/reliability";
+import { reliabilityAnalysis, type MonteCarloReliabilityResult, type ReliabilityResult } from "@/lib/reliability";
 import { AlertTriangle, CheckCircle } from "lucide-react";
 import { AIRecommendations } from "./AIRecommendations";
 import { ExportButton } from "./ExportButton";
@@ -42,7 +42,7 @@ export function ProbabilityOfFailure() {
   }, [ctx.isSynced, ctx.resistanceMean, ctx.resistanceCoV, ctx.derivedStressMean, ctx.derivedStressCoV]);
 
   // Monte Carlo state (lifted so export can access it)
-  const [mcResults, setMcResults] = useState<{ pf: number; samples: { r: number; s: number; failed: boolean }[] } | null>(null);
+  const [mcResults, setMcResults] = useState<MonteCarloReliabilityResult | null>(null);
 
   // FORM analysis
   const result: ReliabilityResult = useMemo(() => reliabilityAnalysis(meanR, covR, meanS, covS), [meanR, covR, meanS, covS]);
@@ -85,14 +85,13 @@ export function ProbabilityOfFailure() {
     ];
 
     if (mcResults) {
-      const failedCount = mcResults.samples.filter((s) => s.failed).length;
       sections.push({
         title: "Monte Carlo Simulation",
-        description: `Results from ${mcResults.samples.length} random samples`,
+        description: `Results from ${mcResults.numSimulations} random samples`,
         data: [
           { label: "Monte Carlo Pf", value: mcResults.pf, precision: 6 },
-          { label: "Failed Samples", value: failedCount, precision: 0 },
-          { label: "Total Samples", value: mcResults.samples.length, precision: 0 },
+          { label: "Failed Samples", value: mcResults.failureCount, precision: 0 },
+          { label: "Total Samples", value: mcResults.numSimulations, precision: 0 },
         ],
       });
     }
@@ -110,6 +109,8 @@ export function ProbabilityOfFailure() {
     safety_margin_mpa: result.meanSafetyMargin,
     risk_level: risk.level,
     mc_pf: mcResults?.pf ?? null,
+    mc_failure_count: mcResults?.failureCount ?? null,
+    mc_num_simulations: mcResults?.numSimulations ?? null,
   }], [meanR, covR, meanS, covS, result, risk.level, mcResults]);
 
   // ─── Render ─────────────────────────────────────────────────

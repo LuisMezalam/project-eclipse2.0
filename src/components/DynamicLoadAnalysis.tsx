@@ -52,6 +52,7 @@ export function DynamicLoadAnalysis() {
   const [numElements, setNumElements] = useState(10);
   const [beamLength, setBeamLength] = useState(6);
   const [EI, setEI] = useState(1e6);
+  const [massPerLength, setMassPerLength] = useState(250);
 
   // Random excitation
   const [psdIntensity, setPsdIntensity] = useState(0.01);
@@ -83,17 +84,17 @@ export function DynamicLoadAnalysis() {
   const timeHistoryData = useMemo(() => generateTimeHistory(effectiveSystem.mass, effectiveSystem.stiffness, effectiveSystem.damping, effectiveSystem.forceAmplitude, forceFrequency, 5, 0.02), [effectiveSystem, forceFrequency]);
   const reliability = useMemo(() => reliabilityAnalysis(maxAllowableDisp * 1000, allowableCOV, response.maxDisplacement * 1000, dispCOV), [maxAllowableDisp, allowableCOV, response.maxDisplacement, dispCOV]);
 
-  const feaResult = useMemo(() => performFEAAnalysis(beamLength, numElements, [{ position: beamLength / 2, force: -forceAmplitude / 1000 }], [{ position: 0, type: 'pinned' }, { position: beamLength, type: 'roller' }], EI), [beamLength, numElements, forceAmplitude, EI]);
+  const feaResult = useMemo(() => performFEAAnalysis(beamLength, numElements, [{ position: beamLength / 2, force: -forceAmplitude }], [{ position: 0, type: 'pinned' }, { position: beamLength, type: 'roller' }], EI, massPerLength), [beamLength, numElements, forceAmplitude, EI, massPerLength]);
 
   const spectralResult = useMemo(() => {
     const appParams = getApplicationParameters(selectedApplication);
-    return spectralAnalysis(mass, stiffness, damping, appParams.psdType, { ...appParams.defaultParams, S0: psdIntensity });
-  }, [mass, stiffness, damping, selectedApplication, psdIntensity]);
+    return spectralAnalysis(effectiveSystem.mass, effectiveSystem.stiffness, effectiveSystem.damping, appParams.psdType, { ...appParams.defaultParams, S0: psdIntensity });
+  }, [effectiveSystem, selectedApplication, psdIntensity]);
 
   const randomReliability = useMemo(() => {
     const wn = Math.sqrt(effectiveSystem.stiffness / effectiveSystem.mass);
     const zeta = effectiveSystem.damping / (2 * Math.sqrt(effectiveSystem.stiffness * effectiveSystem.mass));
-    const zeroRate = (wn / (2 * Math.PI)) * Math.sqrt(1 - zeta * zeta);
+    const zeroRate = zeta < 1 ? (wn / (2 * Math.PI)) * Math.sqrt(1 - zeta * zeta) : 0;
     return firstPassageReliability(spectralResult.rmsResponse, maxAllowableDisp, zeroRate, 3600);
   }, [spectralResult, maxAllowableDisp, effectiveSystem]);
 
@@ -146,6 +147,7 @@ export function DynamicLoadAnalysis() {
             numElements={numElements} setNumElements={setNumElements}
             beamLength={beamLength} setBeamLength={setBeamLength}
             EI={EI} setEI={setEI}
+            massPerLength={massPerLength} setMassPerLength={setMassPerLength}
             forceAmplitude={forceAmplitude}
             feaResult={feaResult}
           />

@@ -8,6 +8,8 @@ interface FEATabProps {
   setBeamLength: (v: number) => void;
   EI: number;
   setEI: (v: number) => void;
+  massPerLength: number;
+  setMassPerLength: (v: number) => void;
   forceAmplitude: number;
   feaResult: FEAResult;
 }
@@ -16,6 +18,7 @@ export function FEATab({
   numElements, setNumElements,
   beamLength, setBeamLength,
   EI, setEI,
+  massPerLength, setMassPerLength,
   forceAmplitude,
   feaResult,
 }: FEATabProps) {
@@ -24,9 +27,9 @@ export function FEATab({
       <div className="glass-card p-6">
         <h3 className="text-xl font-semibold mb-6 text-foreground">Finite Element Discretization</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Based on CE 340 Section 4: Higher-order moments enhance FE simulations through variance-constrained load inputs and mesh refinement guidance.
+          Euler-Bernoulli beam elements solve static response and modes using the selected supports, flexural rigidity, and mass per unit length.
         </p>
-        <div className="grid md:grid-cols-3 gap-6 mb-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           <div>
             <label className="text-xs text-muted-foreground">Number of Elements: {numElements}</label>
             <Slider value={[numElements]} onValueChange={([v]) => setNumElements(v)} min={4} max={20} step={1} />
@@ -39,8 +42,18 @@ export function FEATab({
             <label className="text-xs text-muted-foreground">Flexural Rigidity EI: {(EI / 1e6).toFixed(2)} MN·m²</label>
             <Slider value={[EI]} onValueChange={([v]) => setEI(v)} min={1e5} max={1e7} step={1e5} />
           </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Mass per Length μ: {massPerLength} kg/m</label>
+            <Slider value={[massPerLength]} onValueChange={([v]) => setMassPerLength(v)} min={50} max={2000} step={50} />
+          </div>
         </div>
       </div>
+
+      {feaResult.error && (
+        <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {feaResult.error}
+        </div>
+      )}
 
       {/* Mesh Visualization */}
       <div className="glass-card p-6">
@@ -74,7 +87,7 @@ export function FEATab({
       </div>
 
       {/* Mode Shapes */}
-      <div className="glass-card p-6">
+      {!feaResult.error && <div className="glass-card p-6">
         <h3 className="text-lg font-semibold mb-4 text-foreground">Modal Analysis (First 3 Modes)</h3>
         <div className="grid md:grid-cols-3 gap-4">
           {feaResult.modeShapes.map((mode, idx) => (
@@ -90,10 +103,10 @@ export function FEATab({
             </div>
           ))}
         </div>
-      </div>
+      </div>}
 
       {/* Internal Forces */}
-      <div className="glass-card p-6">
+      {!feaResult.error && <div className="glass-card p-6">
         <h3 className="text-lg font-semibold mb-4 text-foreground">Element Internal Forces</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -115,7 +128,7 @@ export function FEATab({
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
       {/* FEA Theory */}
       <div className="glass-card p-6">
