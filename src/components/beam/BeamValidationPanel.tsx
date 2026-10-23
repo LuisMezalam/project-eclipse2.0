@@ -4,6 +4,7 @@ import type { BeamValidationSeverity, BeamValidationSummary } from "@/lib/beamVa
 
 interface BeamValidationPanelProps {
   validation: BeamValidationSummary;
+  supportFallback: boolean;
 }
 
 const statusConfig = {
@@ -44,8 +45,9 @@ function MetricTile({ label, value, detail }: { label: string; value: string; de
   );
 }
 
-export function BeamValidationPanel({ validation }: BeamValidationPanelProps) {
-  const StatusIcon = statusConfig[validation.status].icon;
+export function BeamValidationPanel({ validation, supportFallback }: BeamValidationPanelProps) {
+  const displayStatus = supportFallback ? "critical" : validation.status;
+  const StatusIcon = statusConfig[displayStatus].icon;
   const visibleIssues = [...validation.issues]
     .sort((a, b) => {
       const order: Record<BeamValidationSeverity, number> = { critical: 0, warning: 1, info: 2 };
@@ -62,25 +64,28 @@ export function BeamValidationPanel({ validation }: BeamValidationPanelProps) {
             Analysis Health Check
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Solver route, model caveats, strength, serviceability, and reliability checks for the active beam state.
+            Strength and serviceability checks for the active beam state.
           </p>
         </div>
-        <Badge variant={statusConfig[validation.status].badge} className="w-fit gap-1.5">
+        <Badge variant={statusConfig[displayStatus].badge} className="w-fit gap-1.5">
           <StatusIcon className="h-3.5 w-3.5" />
-          {validation.statusLabel}
+          {supportFallback ? "Unstable supports" : validation.statusLabel}
         </Badge>
       </div>
 
-      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <MetricTile label="Solver Route" value={validation.solverLabel} detail={validation.solverNote} />
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
         <MetricTile label="Stress Utilization" value={formatPercent(validation.stressUtilization)} detail="Demand stress / yield strength" />
         <MetricTile label="Deflection Check" value={formatPercent(validation.deflectionRatio)} detail="Max deflection / L/250" />
-        <MetricTile label="FORM beta" value={Number.isFinite(validation.reliabilityBeta) ? validation.reliabilityBeta.toFixed(3) : "n/a"} detail={`Pf ${Number.isFinite(validation.probabilityOfFailure) ? validation.probabilityOfFailure.toExponential(2) : "n/a"}`} />
-        <MetricTile label="Safety Factor" value={Number.isFinite(validation.safetyFactor) ? validation.safetyFactor.toFixed(2) : "n/a"} detail={`${validation.criticalCount} critical, ${validation.warningCount} warnings`} />
       </div>
 
+      {supportFallback && (
+        <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          The selected supports cannot restrain the beam. Results are using the standard supports for this beam type; add a fixed support or supports at two different positions to analyze the selected layout.
+        </div>
+      )}
+
       <div className="mt-5 space-y-2">
-        {visibleIssues.length === 0 ? (
+        {visibleIssues.length === 0 && !supportFallback ? (
           <div className="rounded-lg border border-accent/30 bg-accent/10 p-3 text-sm text-accent">
             No active warnings for the current configuration.
           </div>

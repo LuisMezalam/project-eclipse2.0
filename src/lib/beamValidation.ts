@@ -67,9 +67,9 @@ const levelRank: Record<CapabilityLevel, number> = {
 };
 
 const solverLabels: Record<CapabilityLevel, string> = {
-  exact: "Direct closed-form",
-  envelope: "Envelope sweep",
-  approximate: "Screening approximation",
+  exact: "Euler-Bernoulli finite element",
+  envelope: "Finite-element envelope sweep",
+  approximate: "Equivalent model",
   planned: "Roadmap solver",
 };
 

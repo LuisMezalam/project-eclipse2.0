@@ -5,10 +5,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import {
-  analyzeSimplySupported, analyzeCantilever, analyzeFixedFixed,
-  analyzeProppedCantilever, analyzeOverhanging, analyzeContinuous,
-  analyzeHybridLoads, reliabilityAnalysis,
-  generateHybridDiagramData, generateDiagramData,
+  reliabilityAnalysis, solveBeamResponse,
   generateInfluenceLineData, generateEnvelopeData,
   calculateCrossSectionProperties,
   type BeamAnalysis, type LoadConfig, type LoadType, type BeamType,
@@ -26,17 +23,8 @@ import {
 } from "./beamTypes";
 
 function resolveAnalysisBeamType(beamType: BeamType): BeamType {
-  const map: Partial<Record<BeamType, BeamType>> = {
-    "multi-span": "continuous",
-    gerber: "simply-supported",
-    "elastic-foundation": "simply-supported",
-    "spring-supported": "continuous",
-    settlement: "propped-cantilever",
-    tapered: "simply-supported",
-    "beam-column": "simply-supported",
-    composite: "simply-supported",
-  };
-  return map[beamType] ?? beamType;
+  // The finite-element solver uses the selected support layout directly.
+  return beamType;
 }
 
 function resolveAnalysisLoadConfig(load: LoadConfig, beamLength: number): LoadConfig {
@@ -260,28 +248,23 @@ export function useBeamAnalysis() {
     [hybridLoads, beamLength],
   );
 
-  const beamResult: BeamAnalysis = useMemo(() => {
-    if (loadMode === "hybrid" && hybridLoads.length > 0) {
-      return analyzeHybridLoads(effectiveBeamType, { loads: effectiveHybridLoads }, beamLength, sectionProps.sectionModulus, elasticModulus * 1e9, sectionProps.momentOfInertia);
-    }
-    const analyzers: Record<BeamType, typeof analyzeSimplySupported> = {
-      "fixed-fixed": analyzeFixedFixed,
-      "propped-cantilever": analyzeProppedCantilever,
-      overhanging: analyzeOverhanging,
-      continuous: analyzeContinuous,
-      cantilever: analyzeCantilever,
-      "simply-supported": analyzeSimplySupported,
-      "multi-span": analyzeContinuous,
-      gerber: analyzeSimplySupported,
-      "elastic-foundation": analyzeSimplySupported,
-      "spring-supported": analyzeContinuous,
-      settlement: analyzeProppedCantilever,
-      tapered: analyzeSimplySupported,
-      "beam-column": analyzeSimplySupported,
-      composite: analyzeSimplySupported,
-    };
-    return (analyzers[effectiveBeamType] || analyzeSimplySupported)(effectiveLoadConfig, beamLength, sectionProps.sectionModulus, elasticModulus * 1e9, sectionProps.momentOfInertia);
-  }, [effectiveBeamType, effectiveLoadConfig, loadMode, hybridLoads.length, effectiveHybridLoads, beamLength, sectionProps, elasticModulus]);
+  const beamSolution = useMemo(() => {
+    const loads = loadMode === "hybrid" && effectiveHybridLoads.length > 0
+      ? effectiveHybridLoads
+      : [effectiveLoadConfig];
+    return solveBeamResponse(
+      beamType,
+      loads,
+      beamLength,
+      elasticModulus * 1e9,
+      sectionProps.momentOfInertia,
+      supports,
+      { numPoints: 400 },
+      sectionProps.sectionModulus,
+    );
+  }, [beamType, effectiveLoadConfig, loadMode, effectiveHybridLoads, beamLength, sectionProps, elasticModulus, supports]);
+  const beamResult: BeamAnalysis = beamSolution.analysis;
+  const diagramData = beamSolution.diagramData;
 
   const reliability = useMemo(() => {
     const meanStress = Math.abs(beamResult.maxStress) / 1e6;
@@ -352,21 +335,22 @@ export function useBeamAnalysis() {
     reliability,
   ]);
 
-  const diagramData = useMemo(() => {
-    if (loadMode === "hybrid" && hybridLoads.length > 0)
-      return generateHybridDiagramData(effectiveBeamType, effectiveHybridLoads, beamLength, elasticModulus * 1e9, sectionProps.momentOfInertia);
-    return generateDiagramData(effectiveBeamType, effectiveLoadConfig, beamLength, elasticModulus * 1e9, sectionProps.momentOfInertia);
-  }, [effectiveBeamType, effectiveLoadConfig, loadMode, hybridLoads.length, effectiveHybridLoads, beamLength, elasticModulus, sectionProps.momentOfInertia]);
-
-  const influenceData = useMemo(() => generateInfluenceLineData(effectiveBeamType, influenceMeasurePoint, beamLength, 50, elasticModulus * 1e9, sectionProps.momentOfInertia),
-    [effectiveBeamType, influenceMeasurePoint, beamLength, elasticModulus, sectionProps.momentOfInertia]);
+  const influenceData = useMemo(() => generateInfluenceLineData(
+    beamType,
+    influenceMeasurePoint,
+    beamLength,
+    50,
+    elasticModulus * 1e9,
+    sectionProps.momentOfInertia,
+    supports,
+  ), [beamType, influenceMeasurePoint, beamLength, elasticModulus, sectionProps.momentOfInertia, supports]);
 
   const envelopeData = useMemo(() => {
     const intensity = loadMode === "hybrid"
       ? effectiveHybridLoads.find((l) => l.type === "moving")?.intensity || effectiveLoadConfig.intensity
       : effectiveLoadConfig.intensity;
-    return generateEnvelopeData(effectiveBeamType, intensity, beamLength, elasticModulus * 1e9, sectionProps.momentOfInertia);
-  }, [effectiveBeamType, effectiveLoadConfig.intensity, loadMode, effectiveHybridLoads, beamLength, elasticModulus, sectionProps.momentOfInertia]);
+    return generateEnvelopeData(beamType, intensity, beamLength, elasticModulus * 1e9, sectionProps.momentOfInertia, 50, 20, supports);
+  }, [beamType, effectiveLoadConfig.intensity, loadMode, effectiveHybridLoads, beamLength, elasticModulus, sectionProps.momentOfInertia, supports]);
 
   const hasMovingLoad = loadMode === "hybrid" ? hybridLoads.some(l => l.type === "moving" || l.type === "axle-train") : loadType === "moving" || loadType === "axle-train";
 
@@ -405,38 +389,23 @@ export function useBeamAnalysis() {
     let totalShear = 0, totalMoment = 0;
     const contributions: { label: string; color: string; shear: number; moment: number; type: LoadType; intensity: number }[] = [];
 
-    const getIL = (pos: number) => {
-      const idx = Math.round((pos / beamLength) * 50);
-      return influenceData[Math.min(idx, influenceData.length - 1)] || { shearAt: 0, momentAt: 0 };
-    };
-    const integrate = (start: number, end: number, intensity: number) => {
-      const steps = 20, dx = (end - start) / steps;
-      let s = 0, m = 0;
-      for (let i = 0; i <= steps; i++) {
-        const il = getIL(start + i * dx);
-        const w = (i === 0 || i === steps) ? 0.5 : 1;
-        s += w * il.shearAt * intensity * dx;
-        m += w * il.momentAt * intensity * dx;
-      }
-      return { shear: s, moment: m };
-    };
-
     const processLoad = (load: LoadConfig, label: string, color: string) => {
-      let shear = 0, moment = 0;
-      if (load.type === "concentrated" || load.type === "moving") {
-        const pos = (load.type === "moving" ? (load.movingStep || 0.5) : (load.position || 0.5)) * beamLength;
-        const il = getIL(pos);
-        shear = load.intensity * il.shearAt;
-        moment = load.intensity * il.momentAt;
-      } else if (load.type === "moment") {
-        moment = load.intensity;
-      } else if (load.type === "udl") {
-        const r = integrate(0, beamLength, load.intensity); shear = r.shear; moment = r.moment;
-      } else if (load.type === "partial-udl") {
-        const r = integrate((load.startPosition || 0.25) * beamLength, (load.endPosition || 0.75) * beamLength, load.intensity); shear = r.shear; moment = r.moment;
-      } else if (load.type === "triangular" || load.type === "trapezoidal" || load.type === "parabolic") {
-        const r = integrate(0, beamLength, load.intensity); shear = r.shear; moment = r.moment;
-      }
+      const response = solveBeamResponse(
+        beamType,
+        [load],
+        beamLength,
+        elasticModulus * 1e9,
+        sectionProps.momentOfInertia,
+        supports,
+        { numPoints: 1, extraSamplePositions: [influenceMeasurePoint * beamLength] },
+        sectionProps.sectionModulus,
+      );
+      const targetX = influenceMeasurePoint * beamLength;
+      const point = response.diagramData.reduce((closest, candidate) =>
+        Math.abs(candidate.x - targetX) < Math.abs(closest.x - targetX) ? candidate : closest,
+      );
+      const shear = point.shear * 1000;
+      const moment = point.moment * 1000;
       totalShear += shear; totalMoment += moment;
       contributions.push({ label, color, shear: shear / 1000, moment: moment / 1000, type: load.type, intensity: load.intensity });
     };
@@ -451,7 +420,7 @@ export function useBeamAnalysis() {
       processLoad(effectiveLoadConfig, prefix, "hsl(142 71% 45%)");
     }
     return { influenceEffects: { shear: totalShear / 1000, moment: totalMoment / 1000 }, loadContributions: contributions };
-  }, [loadMode, effectiveHybridLoads, effectiveLoadConfig, beamLength, influenceData]);
+  }, [loadMode, effectiveHybridLoads, effectiveLoadConfig, beamType, beamLength, elasticModulus, sectionProps, supports, influenceMeasurePoint]);
 
   // ─── Export ─────────────────────────────────────────────────
   const getBeamReportData = useCallback((): ReportSection[] => {
@@ -526,7 +495,7 @@ export function useBeamAnalysis() {
   }, [beamType, beamLength, loadType, loadMode, hybridLoads, loadIntensity, elasticModulus, crossSectionType, sectionProps, beamResult, reliability, validation, displayUnits, isImperial, convertForceToDisplay, getDisplayForceUnit]);
 
   const getBeamCSVData = useCallback(() => diagramData.map(p => ({
-    position_m: p.x, shear_kn: p.shear, moment_knm: p.moment, deflection_mm: p.deflection * 1000,
+    position_m: p.x, shear_kn: p.shear, moment_knm: p.moment, deflection_mm: p.deflection,
   })), [diagramData]);
 
   return {
@@ -567,6 +536,7 @@ export function useBeamAnalysis() {
     // Computed
     loadConfig, effectiveLoadConfig, effectiveHybridLoads, effectiveBeamType,
     beamResult, reliability, validation, diagramData, influenceData, envelopeData,
+    supportFallback: beamSolution.supportFallback,
     hasMovingLoad, loadMarkers, influenceEffects, loadContributions,
     // Export
     getBeamReportData, getBeamCSVData,

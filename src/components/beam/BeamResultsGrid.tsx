@@ -35,38 +35,32 @@ export function BeamResultsGrid({ beamResult, yieldStrength, beamLength, display
   const stressDisplay = beamResult.maxStress * du.stress.factor;
   const yieldDisplay = yieldStrength * du.yieldFactor;
   const deflDisplay = beamResult.maxDeflection * du.deflection.factor;
+  const minDeflDisplay = (beamResult.minDeflection ?? 0) * du.deflection.factor;
   const serviceLimitDisplay = (beamLength / 250) * du.deflection.factor;
+  const deflectionExceedsLimit = Math.max(Math.abs(deflDisplay), Math.abs(minDeflDisplay)) > serviceLimitDisplay;
+
+  const metrics = [
+    { label: "Total Load W", value: `${(beamResult.totalLoad * du.force.factor).toFixed(1)} ${du.force.unit}` },
+    { label: "Centroid x̄", value: `${(beamResult.centroidX * du.length.factor).toFixed(2)} ${du.length.unit}` },
+    { label: "Max Shear Vmax", value: `${(beamResult.maxShear * du.force.factor).toFixed(1)} ${du.force.unit}` },
+    { label: "Min Shear Vmin", value: `${((beamResult.minShear ?? 0) * du.force.factor).toFixed(1)} ${du.force.unit}` },
+    { label: "Max Moment Mmax", value: `${(beamResult.maxBendingMoment * du.moment.factor).toFixed(1)} ${du.moment.unit}` },
+    { label: "Min Moment Mmin", value: `${((beamResult.minBendingMoment ?? 0) * du.moment.factor).toFixed(1)} ${du.moment.unit}` },
+    { label: "Max Deflection Dmax", value: `${deflDisplay.toFixed(2)} ${du.deflection.unit}`, alert: deflectionExceedsLimit },
+    { label: "Min Deflection Dmin", value: `${minDeflDisplay.toFixed(2)} ${du.deflection.unit}`, alert: deflectionExceedsLimit },
+    { label: "Max Stress σmax", value: `${stressDisplay.toFixed(1)} ${du.stress.unit}`, alert: stressDisplay > yieldDisplay },
+  ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-      <div className="glass-card p-4">
-        <div className="text-xs text-muted-foreground">Total Load W</div>
-        <div className="text-xl font-bold font-mono text-foreground">{(beamResult.totalLoad * du.force.factor).toFixed(1)} {du.force.unit}</div>
-      </div>
-      <div className="glass-card p-4">
-        <div className="text-xs text-muted-foreground">Centroid x̄</div>
-        <div className="text-xl font-bold font-mono text-foreground">{(beamResult.centroidX * du.length.factor).toFixed(2)} {du.length.unit}</div>
-      </div>
-      <div className="glass-card p-4">
-        <div className="text-xs text-muted-foreground">Max Shear V<sub>max</sub></div>
-        <div className="text-xl font-bold font-mono text-foreground">{(beamResult.maxShear * du.force.factor).toFixed(1)} {du.force.unit}</div>
-      </div>
-      <div className="glass-card p-4">
-        <div className="text-xs text-muted-foreground">Max Moment M<sub>max</sub></div>
-        <div className="text-xl font-bold font-mono text-foreground">{(beamResult.maxBendingMoment * du.moment.factor).toFixed(1)} {du.moment.unit}</div>
-      </div>
-      <div className="glass-card p-4">
-        <div className="text-xs text-muted-foreground">Max Stress σ<sub>max</sub></div>
-        <div className={`text-xl font-bold font-mono ${stressDisplay > yieldDisplay ? "text-destructive" : "text-foreground"}`}>
-          {stressDisplay.toFixed(1)} {du.stress.unit}
+    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+      {metrics.map((metric) => (
+        <div key={metric.label} className="glass-card p-4">
+          <div className="text-xs text-muted-foreground">{metric.label}</div>
+          <div className={`text-xl font-bold font-mono ${metric.alert ? "text-destructive" : "text-foreground"}`}>
+            {metric.value}
+          </div>
         </div>
-      </div>
-      <div className="glass-card p-4">
-        <div className="text-xs text-muted-foreground">Max Deflection δ<sub>max</sub></div>
-        <div className={`text-xl font-bold font-mono ${deflDisplay > serviceLimitDisplay ? "text-destructive" : "text-accent"}`}>
-          {deflDisplay.toFixed(2)} {du.deflection.unit}
-        </div>
-      </div>
+      ))}
     </div>
   );
 }

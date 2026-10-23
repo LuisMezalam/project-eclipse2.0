@@ -17,7 +17,7 @@ interface BeamCapabilityPanelProps {
 }
 
 const capabilityConfig: Record<CapabilityLevel, { label: string; icon: typeof CheckCircle2; badge: "default" | "secondary" | "outline" | "destructive" }> = {
-  exact: { label: "Exact", icon: CheckCircle2, badge: "default" },
+  exact: { label: "FE", icon: CheckCircle2, badge: "default" },
   approximate: { label: "Approx", icon: AlertTriangle, badge: "secondary" },
   envelope: { label: "Envelope", icon: Route, badge: "outline" },
   planned: { label: "Planned", icon: Construction, badge: "destructive" },
@@ -38,7 +38,7 @@ export function BeamCapabilityPanel({ beamType, loadType }: BeamCapabilityPanelP
               Beam Solver Capability Matrix
             </CardTitle>
             <CardDescription>
-              Documents what the Static Loads tab solves directly today and where advanced cases are screening approximations.
+              Standard beam cases use a linear Euler–Bernoulli finite-element model. Specialized behavior and equivalent loads are marked approximate.
             </CardDescription>
           </div>
           <Badge variant={capabilityConfig[activeCapability.level].badge} className="w-fit">

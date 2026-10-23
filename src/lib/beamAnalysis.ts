@@ -75,11 +75,41 @@ export interface BeamAnalysis {
   centroidX: number;
   momentAtSupport: number;
   maxBendingMoment: number;
+  minBendingMoment?: number;
   maxShear: number;
+  minShear?: number;
   maxStress: number;
   maxDeflection: number;
+  minDeflection?: number;
   deflectionLocation: number;
   loadType: LoadType;
+}
+
+export interface BeamSupportCondition {
+  position: number;
+  type: 'pin' | 'roller' | 'fixed' | 'hinge' | 'none';
+}
+
+export interface BeamSolverOptions {
+  /** Number of points returned for plotting. The extrema use a finer grid. */
+  numPoints?: number;
+  /** Extra positions to include in the returned plot data. */
+  extraSamplePositions?: number[];
+  /** Number of finite elements across the beam. */
+  elementCount?: number;
+}
+
+export interface BeamSupportReaction {
+  position: number;
+  vertical: number;
+  moment: number;
+}
+
+export interface BeamSolverResponse {
+  analysis: BeamAnalysis;
+  diagramData: DiagramPoint[];
+  supportReactions: BeamSupportReaction[];
+  supportFallback: boolean;
 }
 
 export interface LoadConfig {
@@ -220,6 +250,453 @@ function verticalFactor(loadConfig: LoadConfig): number {
     return Math.cos(loadConfig.forceAngle * Math.PI / 180);
   }
   return 1;
+}
+
+const gaussNodes = [-Math.sqrt(3 / 5), 0, Math.sqrt(3 / 5)];
+const gaussWeights = [5 / 9, 8 / 9, 5 / 9];
+
+function defaultBeamSupports(beamType: BeamType): BeamSupportCondition[] {
+  switch (beamType) {
+    case 'cantilever': return [{ position: 0, type: 'fixed' }];
+    case 'fixed-fixed': return [{ position: 0, type: 'fixed' }, { position: 1, type: 'fixed' }];
+    case 'propped-cantilever':
+    case 'settlement': return [{ position: 0, type: 'fixed' }, { position: 1, type: 'roller' }];
+    case 'overhanging': return [{ position: 0.25, type: 'pin' }, { position: 0.75, type: 'roller' }];
+    case 'continuous': return [{ position: 0, type: 'pin' }, { position: 0.5, type: 'pin' }, { position: 1, type: 'roller' }];
+    case 'multi-span': return [{ position: 0, type: 'pin' }, { position: 0.33, type: 'roller' }, { position: 0.66, type: 'roller' }, { position: 1, type: 'roller' }];
+    case 'gerber': return [{ position: 0, type: 'pin' }, { position: 0.5, type: 'hinge' }, { position: 1, type: 'roller' }];
+    case 'spring-supported': return [{ position: 0, type: 'pin' }, { position: 0.5, type: 'roller' }, { position: 1, type: 'roller' }];
+    case 'simply-supported':
+    case 'elastic-foundation':
+    case 'tapered':
+    case 'beam-column':
+    case 'composite':
+    default: return [{ position: 0, type: 'pin' }, { position: 1, type: 'roller' }];
+  }
+}
+
+function normalizedBeamSupports(beamType: BeamType, supports: BeamSupportCondition[] | undefined, beamLength: number): BeamSupportCondition[] {
+  const source = supports?.length ? supports : defaultBeamSupports(beamType);
+  const normalized = source
+    .filter((support) => support.type !== 'none' && Number.isFinite(support.position))
+    .map((support) => ({ ...support, position: Math.min(1, Math.max(0, support.position)) }));
+  const restrainedPositions = new Set(normalized.map((support) => support.position.toFixed(9)));
+  const hasFixed = normalized.some((support) => support.type === 'fixed');
+  if (hasFixed || restrainedPositions.size >= 2) return normalized;
+
+  // A free beam or a single pin has rigid-body motion. Use the selected beam's
+  // standard restraints so the solver never returns plausible-looking NaNs.
+  return defaultBeamSupports(beamType);
+}
+
+function hasStableSupportLayout(supports: BeamSupportCondition[]): boolean {
+  const active = supports.filter((support) => support.type !== 'none' && Number.isFinite(support.position));
+  return active.some((support) => support.type === 'fixed') || new Set(active.map((support) => support.position.toFixed(9))).size >= 2;
+}
+
+function loadPosition(load: LoadConfig, beamLength: number): number {
+  if (load.type === 'moving' || load.type === 'axle-train') return (load.movingStep ?? load.position ?? 0.5) * beamLength;
+  return (load.position ?? 0.5) * beamLength;
+}
+
+function distributedLoadBounds(load: LoadConfig, beamLength: number): [number, number] {
+  if (load.type === 'partial-udl' || load.type === 'patch' || load.type === 'prestress') {
+    return [(load.startPosition ?? 0.25) * beamLength, (load.endPosition ?? 0.75) * beamLength];
+  }
+  if (load.type === 'triangular' || load.type === 'snow-drift' || load.type === 'hydrostatic') {
+    return [(load.triStartPosition ?? 0) * beamLength, (load.triEndPosition ?? 1) * beamLength];
+  }
+  return [0, beamLength];
+}
+
+/** Load intensity is positive downward and remains in base SI units. */
+function distributedIntensityAt(load: LoadConfig, x: number, beamLength: number): number {
+  const sign = load.inverted ? -1 : 1;
+  const intensity = load.intensity * sign;
+  const [start, end] = distributedLoadBounds(load, beamLength);
+  if (end <= start || x < start || x > end) return 0;
+
+  switch (load.type) {
+    case 'partial-udl':
+    case 'patch':
+    case 'prestress':
+      return intensity;
+    case 'triangular':
+    case 'snow-drift':
+    case 'hydrostatic': {
+      const ratio = (x - start) / (end - start);
+      return intensity * (load.peakPosition === 1 ? ratio : 1 - ratio);
+    }
+    case 'trapezoidal':
+    case 'parametric': {
+      const startIntensity = (load.startIntensity ?? load.intercept ?? load.intensity) * sign;
+      const endIntensity = (load.endIntensity ?? ((load.slope ?? 0) * beamLength + (load.intercept ?? load.intensity))) * sign;
+      return startIntensity + (endIntensity - startIntensity) * x / beamLength;
+    }
+    case 'parabolic':
+      return 4 * intensity * x * (beamLength - x) / (beamLength * beamLength);
+    case 'udl':
+    case 'construction-stage':
+    default:
+      return intensity;
+  }
+}
+
+function isDistributedLoadType(type: LoadType): boolean {
+  return type === 'udl' || type === 'partial-udl' || type === 'triangular' || type === 'trapezoidal' ||
+    type === 'parabolic' || type === 'parametric' || type === 'patch' || type === 'prestress' ||
+    type === 'snow-drift' || type === 'hydrostatic' || type === 'construction-stage';
+}
+
+function integrateDistributedLoad(load: LoadConfig, beamLength: number, from: number, to: number, momentAboutX?: number): number {
+  const [rawStart, rawEnd] = distributedLoadBounds(load, beamLength);
+  const start = Math.max(0, from, Math.min(rawStart, rawEnd));
+  const end = Math.min(beamLength, to, Math.max(rawStart, rawEnd));
+  if (end <= start) return 0;
+
+  let total = 0;
+  const midpoint = (start + end) / 2;
+  const halfLength = (end - start) / 2;
+  for (let i = 0; i < gaussNodes.length; i++) {
+    const x = midpoint + halfLength * gaussNodes[i];
+    const value = distributedIntensityAt(load, x, beamLength);
+    total += gaussWeights[i] * value * (momentAboutX === undefined ? 1 : momentAboutX - x);
+  }
+  return total * halfLength;
+}
+
+function solveDenseSystem(matrix: Float64Array[], rhs: Float64Array): Float64Array | null {
+  const size = rhs.length;
+  const a = matrix.map((row) => row.slice());
+  const b = rhs.slice();
+
+  for (let column = 0; column < size; column++) {
+    let pivot = column;
+    let pivotMagnitude = Math.abs(a[column][column]);
+    for (let row = column + 1; row < size; row++) {
+      const magnitude = Math.abs(a[row][column]);
+      if (magnitude > pivotMagnitude) {
+        pivot = row;
+        pivotMagnitude = magnitude;
+      }
+    }
+    if (!Number.isFinite(pivotMagnitude) || pivotMagnitude < 1e-18) return null;
+    if (pivot !== column) {
+      [a[pivot], a[column]] = [a[column], a[pivot]];
+      [b[pivot], b[column]] = [b[column], b[pivot]];
+    }
+
+    for (let row = column + 1; row < size; row++) {
+      const factor = a[row][column] / a[column][column];
+      if (factor === 0) continue;
+      a[row][column] = 0;
+      for (let entry = column + 1; entry < size; entry++) a[row][entry] -= factor * a[column][entry];
+      b[row] -= factor * b[column];
+    }
+  }
+
+  const result = new Float64Array(size);
+  for (let row = size - 1; row >= 0; row--) {
+    let value = b[row];
+    for (let column = row + 1; column < size; column++) value -= a[row][column] * result[column];
+    result[row] = value / a[row][row];
+  }
+  return result;
+}
+
+/**
+ * Solve the Euler-Bernoulli beam equation with a finite-element stiffness
+ * model. Point loads and support locations are inserted into the mesh exactly;
+ * distributed loads use consistent element loads. This keeps the plotted
+ * curves and reported extrema on the same structural model for every span.
+ */
+export function solveBeamResponse(
+  beamType: BeamType,
+  loads: LoadConfig[],
+  beamLength: number,
+  elasticModulus: number = 200e9,
+  momentOfInertia: number = 1e-5,
+  supports?: BeamSupportCondition[],
+  options: BeamSolverOptions = {},
+  sectionModulus: number = momentOfInertia / 0.1,
+): BeamSolverResponse {
+  const L = Math.max(beamLength, 1e-6);
+  const E = Math.max(elasticModulus, 1e-6);
+  const I = Math.max(momentOfInertia, 1e-12);
+  const meshCount = Math.max(12, Math.min(160, Math.floor(options.elementCount ?? 80)));
+  const supportFallback = supports !== undefined && !hasStableSupportLayout(supports);
+  const supportConditions = normalizedBeamSupports(beamType, supports, L);
+  const pointForces = loads
+    .filter((load) => load.type === 'concentrated' || load.type === 'moving' || load.type === 'axle-train')
+    .map((load) => ({
+      position: Math.min(L, Math.max(0, loadPosition(load, L))),
+      downward: load.intensity * (load.inverted ? -1 : 1) * verticalFactor(load),
+    }));
+  const pointMoments = loads
+    .filter((load) => load.type === 'moment')
+    .map((load) => ({
+      position: Math.min(L, Math.max(0, loadPosition(load, L))),
+      moment: load.intensity * (load.inverted ? -1 : 1),
+    }));
+  const distributedLoads = loads.filter((load) => isDistributedLoadType(load.type));
+
+  const events = [
+    ...supportConditions.map((support) => support.position * L),
+    ...pointForces.map((load) => load.position),
+    ...pointMoments.map((load) => load.position),
+    ...distributedLoads.flatMap((load) => distributedLoadBounds(load, L)),
+  ];
+  const tolerance = L * 1e-10;
+  const coordinates = [...Array.from({ length: meshCount + 1 }, (_, index) => (index / meshCount) * L), 0, L, ...events]
+    .map((x) => Math.min(L, Math.max(0, x)))
+    .sort((a, b) => a - b)
+    .filter((x, index, values) => index === 0 || Math.abs(x - values[index - 1]) > tolerance);
+  const nodeCount = coordinates.length;
+  const positionToNode = (position: number) => {
+    let low = 0;
+    let high = nodeCount - 1;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (coordinates[middle] < position) low = middle + 1;
+      else high = middle;
+    }
+    if (low > 0 && Math.abs(coordinates[low - 1] - position) < Math.abs(coordinates[low] - position)) return low - 1;
+    return low;
+  };
+
+  const supportAtNode = new Map<number, BeamSupportCondition['type']>();
+  for (const support of supportConditions) {
+    const node = positionToNode(support.position * L);
+    const existing = supportAtNode.get(node);
+    if (!existing || support.type === 'fixed' || (support.type === 'hinge' && existing !== 'fixed')) supportAtNode.set(node, support.type);
+  }
+
+  const leftRotation = Array.from({ length: nodeCount }, (_, node) => node * 2 + 1);
+  const rightRotation = [...leftRotation];
+  let degreeCount = nodeCount * 2;
+  for (const [node, type] of supportAtNode) {
+    if (type === 'hinge' && node > 0 && node < nodeCount - 1) rightRotation[node] = degreeCount++;
+  }
+
+  const elementDofs: number[][] = [];
+  const stiffness = Array.from({ length: degreeCount }, () => new Float64Array(degreeCount));
+  const force = new Float64Array(degreeCount);
+  for (let element = 0; element < nodeCount - 1; element++) {
+    const x1 = coordinates[element];
+    const x2 = coordinates[element + 1];
+    const length = x2 - x1;
+    const dofs = [element * 2, rightRotation[element], (element + 1) * 2, leftRotation[element + 1]];
+    elementDofs.push(dofs);
+    const scale = E * I / Math.pow(length, 3);
+    const localK = [
+      [12, 6 * length, -12, 6 * length],
+      [6 * length, 4 * length * length, -6 * length, 2 * length * length],
+      [-12, -6 * length, 12, -6 * length],
+      [6 * length, 2 * length * length, -6 * length, 4 * length * length],
+    ];
+    for (let row = 0; row < 4; row++) {
+      for (let column = 0; column < 4; column++) stiffness[dofs[row]][dofs[column]] += scale * localK[row][column];
+    }
+
+    const midpoint = (x1 + x2) / 2;
+    const halfLength = length / 2;
+    for (let gauss = 0; gauss < gaussNodes.length; gauss++) {
+      const xi = (gaussNodes[gauss] + 1) / 2;
+      const x = midpoint + halfLength * gaussNodes[gauss];
+      const qUp = -distributedLoads.reduce((sum, load) => sum + distributedIntensityAt(load, x, L), 0);
+      const n1 = 1 - 3 * xi * xi + 2 * xi * xi * xi;
+      const n2 = length * (xi - 2 * xi * xi + xi * xi * xi);
+      const n3 = 3 * xi * xi - 2 * xi * xi * xi;
+      const n4 = length * (-xi * xi + xi * xi * xi);
+      const shapes = [n1, n2, n3, n4];
+      for (let row = 0; row < 4; row++) force[dofs[row]] += qUp * shapes[row] * gaussWeights[gauss] * halfLength;
+    }
+  }
+
+  for (const point of pointForces) force[positionToNode(point.position) * 2] -= point.downward;
+  for (const point of pointMoments) {
+    const node = positionToNode(point.position);
+    force[rightRotation[node]] += point.moment;
+  }
+
+  const restrained = new Set<number>();
+  for (const [node, type] of supportAtNode) {
+    if (type === 'none') continue;
+    restrained.add(node * 2);
+    if (type === 'fixed') {
+      restrained.add(leftRotation[node]);
+      restrained.add(rightRotation[node]);
+    }
+  }
+  const freeDofs = Array.from({ length: degreeCount }, (_, degree) => degree).filter((degree) => !restrained.has(degree));
+  const reducedK = freeDofs.map((row) => {
+    const reducedRow = new Float64Array(freeDofs.length);
+    freeDofs.forEach((column, index) => { reducedRow[index] = stiffness[row][column]; });
+    return reducedRow;
+  });
+  const reducedF = new Float64Array(freeDofs.map((degree) => force[degree]));
+  let solved = solveDenseSystem(reducedK, reducedF);
+  if (!solved) {
+    const fallbackSupports = defaultBeamSupports(beamType);
+    const alreadyUsingDefaults = supportConditions.length === fallbackSupports.length && supportConditions.every((support, index) =>
+      support.type === fallbackSupports[index].type && support.position === fallbackSupports[index].position,
+    );
+    if (alreadyUsingDefaults) throw new Error('Beam support configuration is unstable.');
+    const fallback = solveBeamResponse(beamType, loads, L, E, I, fallbackSupports, options, sectionModulus);
+    return { ...fallback, supportFallback: true };
+  }
+
+  const displacement = new Float64Array(degreeCount);
+  freeDofs.forEach((degree, index) => { displacement[degree] = solved![index]; });
+  const residual = new Float64Array(degreeCount);
+  for (let row = 0; row < degreeCount; row++) {
+    let value = -force[row];
+    for (let column = 0; column < degreeCount; column++) value += stiffness[row][column] * displacement[column];
+    residual[row] = value;
+  }
+
+  const supportReactions = [...supportAtNode.entries()].map(([node, type]) => ({
+    position: coordinates[node],
+    vertical: residual[node * 2],
+    moment: type === 'fixed' ? residual[leftRotation[node]] + residual[rightRotation[node]] : 0,
+  }));
+
+  const integrateAllDistributed = (from: number, to: number, momentAboutX?: number) =>
+    distributedLoads.reduce((sum, load) => sum + integrateDistributedLoad(load, L, from, to, momentAboutX), 0);
+
+  const elementForX = (x: number): number => {
+    if (x >= L) return nodeCount - 2;
+    let low = 0;
+    let high = nodeCount - 1;
+    while (low < high - 1) {
+      const middle = Math.floor((low + high) / 2);
+      if (coordinates[middle] <= x) low = middle;
+      else high = middle;
+    }
+    return low;
+  };
+
+  const evaluateAt = (rawX: number) => {
+    const x = Math.min(L, Math.max(0, rawX));
+    const element = elementForX(x);
+    const x1 = coordinates[element];
+    const length = coordinates[element + 1] - x1;
+    const xi = Math.min(1, Math.max(0, (x - x1) / length));
+    const dofs = elementDofs[element];
+    const n1 = 1 - 3 * xi * xi + 2 * xi * xi * xi;
+    const n2 = length * (xi - 2 * xi * xi + xi * xi * xi);
+    const n3 = 3 * xi * xi - 2 * xi * xi * xi;
+    const n4 = length * (-xi * xi + xi * xi * xi);
+    const deflectionUp = n1 * displacement[dofs[0]] + n2 * displacement[dofs[1]] + n3 * displacement[dofs[2]] + n4 * displacement[dofs[3]];
+
+    let shear = 0;
+    let moment = 0;
+    for (const reaction of supportReactions) {
+      const beforeRightBoundary = reaction.position < L - tolerance;
+      const isLeftOfCut = reaction.position < x - tolerance || (beforeRightBoundary && reaction.position <= x + tolerance);
+      if (!isLeftOfCut) continue;
+      shear += reaction.vertical;
+      moment += reaction.vertical * (x - reaction.position) - reaction.moment;
+    }
+    for (const point of pointForces) {
+      const beforeRightBoundary = point.position < L - tolerance;
+      if (point.position < x - tolerance || (beforeRightBoundary && point.position <= x + tolerance)) {
+        shear -= point.downward;
+        moment -= point.downward * (x - point.position);
+      }
+    }
+    for (const point of pointMoments) {
+      if (point.position < x - tolerance || (point.position < L - tolerance && point.position <= x + tolerance)) moment -= point.moment;
+    }
+    shear -= integrateAllDistributed(0, x);
+    moment -= integrateAllDistributed(0, x, x);
+    const load = distributedLoads.reduce((sum, item) => sum + distributedIntensityAt(item, x, L), 0);
+    return { x, shear, moment, load, deflection: -deflectionUp };
+  };
+
+  const numPoints = Math.max(1, Math.floor(options.numPoints ?? 400));
+  const chartXs = Array.from({ length: numPoints + 1 }, (_, index) => (index / numPoints) * L);
+  for (const extraPosition of options.extraSamplePositions ?? []) {
+    if (Number.isFinite(extraPosition) && extraPosition >= 0 && extraPosition <= L) chartXs.push(extraPosition);
+  }
+  const sortedChartXs = chartXs.sort((a, b) => a - b).filter((x, index, values) => index === 0 || Math.abs(x - values[index - 1]) > tolerance);
+  const diagramData = sortedChartXs.map((x) => {
+    const point = evaluateAt(x);
+    return { x: point.x, shear: point.shear / 1000, moment: point.moment / 1000, load: point.load / 1000, deflection: point.deflection * 1000 };
+  });
+
+  const eventPositions = [...coordinates, ...pointForces.map((point) => point.position), ...pointMoments.map((point) => point.position)];
+  const epsilon = Math.max(L * 1e-7, 1e-9);
+  const extremaXs = [
+    ...Array.from({ length: Math.max(400, numPoints) + 1 }, (_, index) => (index / Math.max(400, numPoints)) * L),
+    ...eventPositions,
+    ...eventPositions.flatMap((position) => [position - epsilon, position + epsilon]),
+  ].map((x) => Math.min(L, Math.max(0, x))).sort((a, b) => a - b)
+    .filter((x, index, values) => index === 0 || Math.abs(x - values[index - 1]) > tolerance);
+
+  let maxShear = -Infinity;
+  let minShear = Infinity;
+  let maxBendingMoment = -Infinity;
+  let minBendingMoment = Infinity;
+  let maxDeflection = -Infinity;
+  let minDeflection = Infinity;
+  let maxAbsDeflection = -Infinity;
+  let deflectionLocation = L / 2;
+  let maxAbsMoment = 0;
+  for (const x of extremaXs) {
+    const point = evaluateAt(x);
+    maxShear = Math.max(maxShear, point.shear);
+    minShear = Math.min(minShear, point.shear);
+    maxBendingMoment = Math.max(maxBendingMoment, point.moment);
+    minBendingMoment = Math.min(minBendingMoment, point.moment);
+    maxDeflection = Math.max(maxDeflection, point.deflection);
+    minDeflection = Math.min(minDeflection, point.deflection);
+    if (Math.abs(point.deflection) > maxAbsDeflection) {
+      maxAbsDeflection = Math.abs(point.deflection);
+      deflectionLocation = point.x;
+    }
+    maxAbsMoment = Math.max(maxAbsMoment, Math.abs(point.moment));
+  }
+
+  let totalLoad = 0;
+  let firstMoment = 0;
+  for (const load of distributedLoads) {
+    totalLoad += integrateDistributedLoad(load, L, 0, L);
+    // Integrate x·q(x) directly; the Gauss rule is exact for the supported load profiles.
+    const [rawStart, rawEnd] = distributedLoadBounds(load, L);
+    const start = Math.max(0, Math.min(rawStart, rawEnd));
+    const end = Math.min(L, Math.max(rawStart, rawEnd));
+    if (end > start) {
+      const midpoint = (start + end) / 2;
+      const halfLength = (end - start) / 2;
+      for (let i = 0; i < gaussNodes.length; i++) {
+        const x = midpoint + halfLength * gaussNodes[i];
+        firstMoment += gaussWeights[i] * x * distributedIntensityAt(load, x, L) * halfLength;
+      }
+    }
+  }
+  for (const point of pointForces) {
+    totalLoad += point.downward;
+    firstMoment += point.downward * point.position;
+  }
+  const momentAtSupport = Math.max(0, ...supportReactions.map((reaction) => Math.abs(reaction.moment)));
+  const analysis: BeamAnalysis = {
+    totalLoad,
+    centroidX: Math.abs(totalLoad) > 1e-12 ? firstMoment / totalLoad : L / 2,
+    momentAtSupport,
+    maxBendingMoment: Number.isFinite(maxBendingMoment) ? maxBendingMoment : 0,
+    minBendingMoment: Number.isFinite(minBendingMoment) ? minBendingMoment : 0,
+    maxShear: Number.isFinite(maxShear) ? maxShear : 0,
+    minShear: Number.isFinite(minShear) ? minShear : 0,
+    maxStress: 0,
+    maxDeflection: Number.isFinite(maxDeflection) ? maxDeflection : 0,
+    minDeflection: Number.isFinite(minDeflection) ? minDeflection : 0,
+    deflectionLocation,
+    loadType: loads.length === 1 ? loads[0].type : 'udl',
+  };
+  analysis.maxStress = sectionModulus > 0 ? maxAbsMoment / sectionModulus : 0;
+
+  return { analysis, diagramData, supportReactions, supportFallback };
 }
 
 export function analyzeSimplySupported(
@@ -816,311 +1293,27 @@ export function generateDiagramData(
   beamLength: number,
   elasticModulus: number = 200e9,
   momentOfInertia: number = 1e-5,
-  numPoints: number = 50
+  numPoints: number = 50,
+  supports?: BeamSupportCondition[],
 ): DiagramPoint[] {
-  const sign = loadConfig.inverted ? -1 : 1;
-  const { type, position = 0.5, peakPosition = 0, movingStep = 0.5 } = loadConfig;
-  const intensity = loadConfig.intensity * sign * verticalFactor(loadConfig);
-  const L = beamLength;
-  const E = elasticModulus;
-  const I = momentOfInertia;
-  const data: DiagramPoint[] = [];
-  const diagramFamily = beamType === 'cantilever' ? 'cantilever' : 'simply-supported';
-  const diagramFactors: Partial<Record<BeamType, { shear: number; moment: number; deflection: number }>> = {
-    'fixed-fixed': { shear: 1.15, moment: 0.65, deflection: 0.25 },
-    'propped-cantilever': { shear: 1.1, moment: 0.8, deflection: 0.45 },
-    overhanging: { shear: 1.1, moment: 1.15, deflection: 1.1 },
-    continuous: { shear: 1.1, moment: 0.8, deflection: 0.45 },
-    'multi-span': { shear: 1.1, moment: 0.75, deflection: 0.4 },
-    'spring-supported': { shear: 1.05, moment: 0.85, deflection: 0.55 },
-    settlement: { shear: 1.1, moment: 0.8, deflection: 0.45 },
-    gerber: { shear: 1, moment: 0.95, deflection: 1 },
-    'elastic-foundation': { shear: 0.95, moment: 0.9, deflection: 0.65 },
-    tapered: { shear: 1, moment: 1, deflection: 0.9 },
-    'beam-column': { shear: 1, moment: 1.12, deflection: 1.2 },
-    composite: { shear: 1, moment: 1, deflection: 0.75 },
-  };
-
-  for (let i = 0; i <= numPoints; i++) {
-    const x = (i / numPoints) * L;
-    let shear = 0;
-    let moment = 0;
-    let load = 0;
-    let deflection = 0;
-
-    if (diagramFamily === 'simply-supported') {
-      switch (type) {
-        case 'concentrated': {
-          const a = position * L;
-          const b = L - a;
-          const R1 = intensity * b / L;
-          load = Math.abs(x - a) < L / numPoints ? intensity : 0;
-          shear = x < a ? R1 : R1 - intensity;
-          moment = x <= a ? R1 * x : R1 * x - intensity * (x - a);
-          if (x <= a) {
-            deflection = (intensity * b * x * (L * L - b * b - x * x)) / (6 * E * I * L);
-          } else {
-            deflection = (intensity * a * (L - x) * (2 * L * x - x * x - a * a)) / (6 * E * I * L);
-          }
-          break;
-        }
-        case 'triangular': {
-          if (peakPosition === 0) {
-            const w_x = intensity * (1 - x / L);
-            load = w_x;
-            const R1 = (intensity * L) / 3;
-            shear = R1 - intensity * x + (intensity * x * x) / (2 * L);
-            moment = R1 * x - (intensity * x * x) / 2 + (intensity * x * x * x) / (6 * L);
-          } else {
-            const w_x = intensity * (x / L);
-            load = w_x;
-            const R1 = (intensity * L) / 6;
-            shear = R1 - (intensity * x * x) / (2 * L);
-            moment = R1 * x - (intensity * x * x * x) / (6 * L);
-          }
-          deflection = (intensity * x * (L * L - x * x) * (7 * L * L - 3 * x * x)) / (360 * E * I * L * L);
-          break;
-        }
-        case 'moving': {
-          const a = movingStep * L;
-          const b = L - a;
-          const R1 = intensity * b / L;
-          load = Math.abs(x - a) < L / numPoints ? intensity : 0;
-          shear = x < a ? R1 : R1 - intensity;
-          moment = x <= a ? R1 * x : R1 * x - intensity * (x - a);
-          if (x <= a) {
-            deflection = (intensity * b * x * (L * L - b * b - x * x)) / (6 * E * I * L);
-          } else {
-            deflection = (intensity * a * (L - x) * (2 * L * x - x * x - a * a)) / (6 * E * I * L);
-          }
-          break;
-        }
-        case 'partial-udl': {
-          const aStart = (loadConfig.startPosition || 0.25) * L;
-          const aEnd = (loadConfig.endPosition || 0.75) * L;
-          if (x >= aStart && x <= aEnd) {
-            load = intensity;
-          }
-          const totalLoad = intensity * (aEnd - aStart);
-          const centroid = aStart + (aEnd - aStart) / 2;
-          const R1 = totalLoad * (L - centroid) / L;
-          if (x < aStart) {
-            shear = R1;
-            moment = R1 * x;
-          } else if (x <= aEnd) {
-            shear = R1 - intensity * (x - aStart);
-            moment = R1 * x - intensity * (x - aStart) * (x - aStart) / 2;
-          } else {
-            shear = R1 - totalLoad;
-            moment = R1 * x - totalLoad * (x - centroid);
-          }
-          deflection = (5 * intensity * Math.pow(L, 4)) / (384 * E * I) * (x / L) * (1 - x / L);
-          break;
-        }
-        case 'trapezoidal': {
-          const w1 = (loadConfig.startIntensity || loadConfig.intensity) * sign;
-          const w2 = (loadConfig.endIntensity || loadConfig.intensity * 0.5) * sign;
-          const w_x = w1 + (w2 - w1) * x / L;
-          load = w_x;
-          const totalLoad = (w1 + w2) * L / 2;
-          const centroid = L * (w1 + 2 * w2) / (3 * (w1 + w2));
-          const R1 = totalLoad * (L - centroid) / L;
-          shear = R1 - w1 * x - (w2 - w1) * x * x / (2 * L);
-          moment = R1 * x - w1 * x * x / 2 - (w2 - w1) * x * x * x / (6 * L);
-          deflection = (totalLoad * x * (L - x) * (L + x)) / (24 * E * I * L);
-          break;
-        }
-        case 'moment': {
-          const a = position * L;
-          const M0 = intensity;
-          load = 0;
-          const R1 = -M0 / L;
-          shear = R1;
-          if (x <= a) {
-            moment = R1 * x;
-          } else {
-            moment = R1 * x + M0;
-          }
-          deflection = (M0 * x * (L - x)) / (3 * E * I * L);
-          break;
-        }
-        case 'parabolic': {
-          const w_x = 4 * intensity * x * (L - x) / (L * L);
-          load = w_x;
-          const totalLoad = (2 * intensity * L) / 3;
-          const R1 = totalLoad / 2;
-          shear = R1 - 4 * intensity * x * x / (2 * L) + 4 * intensity * x * x * x / (3 * L * L);
-          moment = R1 * x - 4 * intensity * x * x * x / (6 * L) + 4 * intensity * x * x * x * x / (12 * L * L);
-          deflection = (5 * intensity * Math.pow(L, 4)) / (768 * E * I) * 16 * (x / L) * (1 - x / L);
-          break;
-        }
-        case 'udl':
-        default: {
-          const R = intensity * L / 2;
-          load = intensity;
-          shear = R - intensity * x;
-          moment = R * x - (intensity * x * x) / 2;
-          deflection = (intensity * x * (L * L * L - 2 * L * x * x + x * x * x)) / (24 * E * I);
-          break;
-        }
-      }
-    } else {
-      // Cantilever (fixed at x=0)
-      switch (type) {
-        case 'concentrated': {
-          const a = position * L;
-          load = Math.abs(x - a) < L / numPoints ? intensity : 0;
-          shear = x <= a ? 0 : -intensity;
-          moment = x <= a ? 0 : -intensity * (x - a);
-          if (x <= a) {
-            deflection = (intensity * x * x * (3 * a - x)) / (6 * E * I);
-          } else {
-            deflection = (intensity * a * a * (3 * x - a)) / (6 * E * I);
-          }
-          break;
-        }
-        case 'triangular': {
-          if (peakPosition === 0) {
-            const w_x = intensity * (1 - x / L);
-            load = w_x;
-            shear = -(intensity * L / 2) + intensity * x - (intensity * x * x) / (2 * L);
-            moment = -(intensity * L * L / 6) + (intensity * L / 2) * x - (intensity * x * x) / 2 + (intensity * x * x * x) / (6 * L);
-          } else {
-            const w_x = intensity * (x / L);
-            load = w_x;
-            shear = (intensity * x * x) / (2 * L) - (intensity * L) / 2;
-            moment = -(intensity * x * x * x) / (6 * L) + (intensity * L * x) / 2 - (intensity * L * L) / 3;
-          }
-          deflection = (intensity * x * x * (20 * L * L - 10 * L * x + x * x)) / (120 * E * I * L);
-          break;
-        }
-        case 'moving': {
-          const a = movingStep * L;
-          load = Math.abs(x - a) < L / numPoints ? intensity : 0;
-          shear = x <= a ? 0 : -intensity;
-          moment = x <= a ? 0 : -intensity * (x - a);
-          if (x <= a) {
-            deflection = (intensity * x * x * (3 * a - x)) / (6 * E * I);
-          } else {
-            deflection = (intensity * a * a * (3 * x - a)) / (6 * E * I);
-          }
-          break;
-        }
-        case 'partial-udl': {
-          const aStart = (loadConfig.startPosition || 0) * L;
-          const aEnd = (loadConfig.endPosition || 1) * L;
-          if (x >= aStart && x <= aEnd) {
-            load = intensity;
-          }
-          const loadLength = aEnd - aStart;
-          if (x < aStart) {
-            shear = 0;
-            moment = 0;
-          } else if (x <= aEnd) {
-            shear = -intensity * (x - aStart);
-            moment = -intensity * (x - aStart) * (x - aStart) / 2;
-          } else {
-            shear = -intensity * loadLength;
-            moment = -intensity * loadLength * (x - aStart - loadLength / 2);
-          }
-          deflection = (intensity * Math.pow(L, 4)) / (8 * E * I) * Math.pow(x / L, 2);
-          break;
-        }
-        case 'trapezoidal': {
-          const w1 = loadConfig.startIntensity || intensity;
-          const w2 = loadConfig.endIntensity || intensity * 0.5;
-          const w_x = w1 + (w2 - w1) * x / L;
-          load = w_x;
-          const totalLoad = (w1 + w2) * L / 2;
-          shear = -w1 * x - (w2 - w1) * x * x / (2 * L);
-          moment = -w1 * x * x / 2 - (w2 - w1) * x * x * x / (6 * L);
-          deflection = (totalLoad * x * x) / (6 * E * I);
-          break;
-        }
-        case 'moment': {
-          const a = position * L;
-          const M0 = intensity;
-          load = 0;
-          shear = 0;
-          moment = x >= a ? M0 : 0;
-          deflection = x >= a ? (M0 * (x - a) * (x - a)) / (2 * E * I) : 0;
-          break;
-        }
-        case 'parabolic': {
-          const w_x = 4 * intensity * x * (L - x) / (L * L);
-          load = w_x;
-          shear = -4 * intensity * x * x / (2 * L) + 4 * intensity * x * x * x / (3 * L * L);
-          moment = -4 * intensity * x * x * x / (6 * L) + 4 * intensity * x * x * x * x / (12 * L * L);
-          deflection = (intensity * Math.pow(L, 4)) / (20 * E * I) * Math.pow(x / L, 2);
-          break;
-        }
-        case 'udl':
-        default: {
-          load = intensity;
-          shear = -intensity * (L - x);
-          moment = -(intensity * Math.pow(L - x, 2)) / 2;
-          deflection = (intensity * x * x * (6 * L * L - 4 * L * x + x * x)) / (24 * E * I);
-          break;
-        }
-      }
-    }
-
-    const factors = diagramFactors[beamType] ?? { shear: 1, moment: 1, deflection: 1 };
-    data.push({
-      x,
-      shear: (shear * factors.shear) / 1000,
-      moment: (moment * factors.moment) / 1000,
-      load: load / 1000,
-      deflection: deflection * factors.deflection * 1000
-    });
-  }
-
-  return data;
+  return solveBeamResponse(beamType, [loadConfig], beamLength, elasticModulus, momentOfInertia, supports, {
+    numPoints,
+    elementCount: 50,
+  }).diagramData;
 }
-
 export function generateHybridDiagramData(
   beamType: BeamType,
   loads: LoadConfig[],
   beamLength: number,
   elasticModulus: number = 200e9,
   momentOfInertia: number = 1e-5,
-  numPoints: number = 50
+  numPoints: number = 50,
+  supports?: BeamSupportCondition[],
 ): DiagramPoint[] {
-  if (loads.length === 0) {
-    const data: DiagramPoint[] = [];
-    for (let i = 0; i <= numPoints; i++) {
-      data.push({ x: (i / numPoints) * beamLength, shear: 0, moment: 0, load: 0, deflection: 0 });
-    }
-    return data;
-  }
-
-  const loadDatas = loads.map(load =>
-    generateDiagramData(beamType, load, beamLength, elasticModulus, momentOfInertia, numPoints)
-  );
-
-  const data: DiagramPoint[] = [];
-  for (let i = 0; i <= numPoints; i++) {
-    let shear = 0, moment = 0, load = 0, deflection = 0;
-
-    for (const loadData of loadDatas) {
-      shear += loadData[i].shear;
-      moment += loadData[i].moment;
-      load += loadData[i].load;
-      deflection += loadData[i].deflection;
-    }
-
-    data.push({
-      x: loadDatas[0][i].x,
-      shear,
-      moment,
-      load,
-      deflection
-    });
-  }
-
-  return data;
+  return solveBeamResponse(beamType, loads, beamLength, elasticModulus, momentOfInertia, supports, {
+    numPoints,
+  }).diagramData;
 }
-
 // ============================================================
 // Influence Lines
 // ============================================================
@@ -1131,119 +1324,37 @@ export function generateInfluenceLineData(
   beamLength: number,
   numPoints: number = 50,
   elasticModulus: number = 200e9,
-  momentOfInertia: number = 1e-5
+  momentOfInertia: number = 1e-5,
+  supports?: BeamSupportCondition[],
 ): InfluencePoint[] {
   const L = beamLength;
-  const a = measurementPosition * L;
-  const E = elasticModulus;
-  const I = momentOfInertia;
+  const measurementX = Math.min(L, Math.max(0, measurementPosition * L));
   const data: InfluencePoint[] = [];
-
   for (let i = 0; i <= numPoints; i++) {
-    const xp = (i / numPoints) * L;
-    let shearAt = 0;
-    let momentAt = 0;
-    let deflectionAt = 0;
-    let reactionA = 0;
-    let reactionB = 0;
-
-    if (beamType === 'simply-supported') {
-      reactionA = (L - xp) / L;
-      reactionB = xp / L;
-
-      if (xp <= a) {
-        shearAt = -xp / L;
-        momentAt = xp * (L - a) / L;
-      } else {
-        shearAt = (L - xp) / L;
-        momentAt = a * (L - xp) / L;
-      }
-
-      if (xp <= a) {
-        deflectionAt = (xp * (L - a) * (2 * L * a - a * a - xp * xp)) / (6 * E * I * L);
-      } else {
-        deflectionAt = (a * (L - xp) * (2 * L * xp - xp * xp - a * a)) / (6 * E * I * L);
-      }
-    } else if (beamType === 'cantilever') {
-      reactionA = 1;
-      reactionB = 0;
-
-      if (xp <= a) {
-        shearAt = 0;
-        momentAt = 0;
-        deflectionAt = (xp * xp * (3 * a - xp)) / (6 * E * I);
-      } else {
-        shearAt = -1;
-        momentAt = -(xp - a);
-        deflectionAt = (a * a * (3 * xp - a)) / (6 * E * I);
-      }
-    } else if (beamType === 'fixed-fixed') {
-      const b = L - a;
-      reactionA = 1 - (xp * xp * (3 * L - 2 * xp)) / (L * L * L);
-      reactionB = (xp * xp * (3 * L - 2 * xp)) / (L * L * L);
-
-      if (xp <= a) {
-        shearAt = -xp * xp * (3 * a - 2 * xp) / (a * a * a) * reactionA;
-        momentAt = xp * b * b / (L * L) * (L - 2 * xp + a * xp / L);
-      } else {
-        shearAt = reactionA;
-        momentAt = a * (L - xp) * (L - xp) / (L * L) * (L - 2 * (L - xp) + b * (L - xp) / L);
-      }
-
-      deflectionAt = (xp * (L - xp)) / (6 * E * I * L) * (2 * xp * L - xp * xp - a * a) * 0.3;
-    } else if (beamType === 'overhanging') {
-      const supportPos = 0.75 * L;
-      reactionA = xp <= supportPos ? (supportPos - xp) / supportPos : 0;
-      reactionB = xp <= supportPos ? xp / supportPos : 1;
-
-      if (a <= supportPos) {
-        if (xp <= a) {
-          shearAt = -xp / supportPos;
-          momentAt = xp * (supportPos - a) / supportPos;
-        } else if (xp <= supportPos) {
-          shearAt = (supportPos - xp) / supportPos;
-          momentAt = a * (supportPos - xp) / supportPos;
-        } else {
-          shearAt = 0;
-          momentAt = 0;
-        }
-      } else {
-        if (xp <= supportPos) {
-          shearAt = 0;
-          momentAt = -xp * (a - supportPos) / supportPos;
-        } else {
-          shearAt = xp <= a ? 0 : -1;
-          momentAt = xp <= a ? 0 : -(xp - a);
-        }
-      }
-
-      deflectionAt = Math.abs(momentAt) * L / (6 * E * I);
-    } else {
-      reactionA = (L - xp) / L;
-      reactionB = xp / L;
-      if (xp <= a) {
-        shearAt = -xp / L;
-        momentAt = xp * (L - a) / L;
-      } else {
-        shearAt = (L - xp) / L;
-        momentAt = a * (L - xp) / L;
-      }
-      deflectionAt = Math.abs(momentAt) * L / (6 * E * I);
-    }
-
+    const loadPositionRatio = i / numPoints;
+    const response = solveBeamResponse(
+      beamType,
+      [{ type: 'concentrated', intensity: 1, position: loadPositionRatio }],
+      L,
+      elasticModulus,
+      momentOfInertia,
+      supports,
+      { numPoints: 1, extraSamplePositions: [measurementX], elementCount: 40 },
+    );
+    const point = response.diagramData.reduce((closest, candidate) =>
+      Math.abs(candidate.x - measurementX) < Math.abs(closest.x - measurementX) ? candidate : closest,
+    );
     data.push({
-      loadPosition: xp,
-      shearAt,
-      momentAt,
-      deflectionAt: deflectionAt * 1000,
-      reactionA,
-      reactionB
+      loadPosition: loadPositionRatio * L,
+      shearAt: point.shear * 1000,
+      momentAt: point.moment * 1000,
+      deflectionAt: point.deflection,
+      reactionA: response.supportReactions[0]?.vertical ?? 0,
+      reactionB: response.supportReactions[1]?.vertical ?? 0,
     });
   }
-
   return data;
 }
-
 // ============================================================
 // Envelope Data (Moving Loads)
 // ============================================================
@@ -1255,7 +1366,8 @@ export function generateEnvelopeData(
   elasticModulus: number = 200e9,
   momentOfInertia: number = 1e-5,
   numPoints: number = 50,
-  numPositions: number = 20
+  numPositions: number = 20,
+  supports?: BeamSupportCondition[],
 ): EnvelopePoint[] {
   const L = beamLength;
   const data: EnvelopePoint[] = [];
@@ -1274,7 +1386,7 @@ export function generateEnvelopeData(
         movingStep: loadPos
       };
 
-      const diagData = generateDiagramData(beamType, config, L, elasticModulus, momentOfInertia, numPoints);
+      const diagData = generateDiagramData(beamType, config, L, elasticModulus, momentOfInertia, numPoints, supports);
       const point = diagData[i];
 
       if (point) {

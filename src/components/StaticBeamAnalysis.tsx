@@ -11,7 +11,7 @@ import {
   useBeamAnalysis, BeamConfigPanel,
   BeamSchematic, BeamResultsGrid, BeamValidationPanel, ReliabilityPanel,
   ShearMomentDiagrams, DeflectionCurve, CrossSectionPropertiesDisplay,
-  LoadFormulas, EquationsPanel, EnvelopeDiagrams, InfluenceLines } from
+  EnvelopeDiagrams, InfluenceLines } from
 "./beam";
 import { BeamCapabilityPanel } from "./beam/BeamCapabilityPanel";
 
@@ -23,7 +23,7 @@ export function StaticBeamAnalysis() {
     <div className="space-y-6">
       <BeamConfigPanel b={b} />
       <BeamCapabilityPanel beamType={b.beamType} loadType={b.loadType} />
-      <BeamValidationPanel validation={b.validation} />
+      <BeamValidationPanel validation={b.validation} supportFallback={b.supportFallback} />
 
       <BeamSchematic
         beamType={b.beamType} loadType={b.loadType} loadMode={b.loadMode}
@@ -36,8 +36,6 @@ export function StaticBeamAnalysis() {
         triangularPeak={b.triangularPeak} forceAngle={b.forceAngle}
         loadIntensity={b.loadIntensity} supports={b.supports} />
       
-
-      <LoadFormulas beamType={b.beamType} loadType={b.loadType} loadMode={b.loadMode} beamResult={b.beamResult} displayUnits={du} forceAngle={b.forceAngle} hybridLoads={b.hybridLoads} />
 
       <CrossSectionPropertiesDisplay
         crossSectionType={b.crossSectionType}
@@ -85,9 +83,6 @@ export function StaticBeamAnalysis() {
 
       {b.hasMovingLoad && <EnvelopeDiagrams envelopeData={b.envelopeData} displayUnits={du} />}
 
-      <EquationsPanel loadType={b.loadType} />
-
-      
     </div>);
 
 }
