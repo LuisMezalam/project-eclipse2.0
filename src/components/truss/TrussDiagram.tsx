@@ -7,9 +7,11 @@ interface TrussDiagramProps {
   memberResults: MemberResult[];
   pointLoads: PointLoad[];
   selectedNodeId: number | null;
-  setSelectedNodeId: (v: number | null) => void;
   selectedMemberId: number | null;
   setSelectedMemberId: (v: number | null) => void;
+  memberConnectionMode: boolean;
+  connectionStartNodeId: number | null;
+  onNodeClick: (id: number) => void;
   structureType: 'truss' | 'frame';
   svgWidth: number;
   svgHeight: number;
@@ -43,7 +45,7 @@ export function TrussDiagram(p: TrussDiagramProps) {
             const isSelected = p.selectedMemberId === member.id;
             return (
               <g key={member.id}>
-                <line x1={p.toSvgX(n1.x)} y1={p.toSvgY(n1.y)} x2={p.toSvgX(n2.x)} y2={p.toSvgY(n2.y)} stroke={isSelected ? 'hsl(var(--primary))' : strokeColor} strokeWidth={isSelected ? 4 : 2 + forceRatio * 4} className="transition-all duration-300 cursor-pointer" onClick={() => p.setSelectedMemberId(member.id)} />
+                <line x1={p.toSvgX(n1.x)} y1={p.toSvgY(n1.y)} x2={p.toSvgX(n2.x)} y2={p.toSvgY(n2.y)} stroke={isSelected ? 'hsl(var(--primary))' : strokeColor} strokeWidth={isSelected ? 4 : 2 + forceRatio * 4} className={`transition-all duration-300 ${p.memberConnectionMode ? 'cursor-crosshair' : 'cursor-pointer'}`} onClick={() => { if (!p.memberConnectionMode) p.setSelectedMemberId(member.id); }} />
                 {p.structureType === 'frame' && member.isRigid && (
                   <>
                     <rect x={p.toSvgX(n1.x) - 4} y={p.toSvgY(n1.y) - 4} width={8} height={8} className="fill-foreground" transform={`rotate(45 ${p.toSvgX(n1.x)} ${p.toSvgY(n1.y)})`} />
@@ -58,7 +60,8 @@ export function TrussDiagram(p: TrussDiagramProps) {
           {/* Nodes */}
           {p.nodes.map(node => (
             <g key={node.id}>
-              <circle cx={p.toSvgX(node.x)} cy={p.toSvgY(node.y)} r={p.selectedNodeId === node.id ? 10 : 8} className={`cursor-pointer transition-all ${p.selectedNodeId === node.id ? 'fill-primary stroke-primary-foreground' : 'fill-foreground stroke-background'}`} strokeWidth={2} onClick={() => { p.setSelectedNodeId(node.id); p.setSelectedMemberId(null); }} />
+              {p.connectionStartNodeId === node.id && p.memberConnectionMode && <circle cx={p.toSvgX(node.x)} cy={p.toSvgY(node.y)} r={14} className="fill-none stroke-primary" strokeWidth={2} strokeDasharray="3 2" />}
+              <circle cx={p.toSvgX(node.x)} cy={p.toSvgY(node.y)} r={p.selectedNodeId === node.id ? 10 : 8} className={`${p.memberConnectionMode ? 'cursor-crosshair' : 'cursor-pointer'} transition-all ${p.selectedNodeId === node.id || (p.memberConnectionMode && p.connectionStartNodeId === node.id) ? 'fill-primary stroke-primary-foreground' : 'fill-foreground stroke-background'}`} strokeWidth={2} onClick={() => p.onNodeClick(node.id)} />
               {node.supportType === 'pin' && <polygon points={`${p.toSvgX(node.x)},${p.toSvgY(node.y) + 8} ${p.toSvgX(node.x) - 10},${p.toSvgY(node.y) + 22} ${p.toSvgX(node.x) + 10},${p.toSvgY(node.y) + 22}`} className="fill-muted-foreground/60 stroke-muted-foreground" strokeWidth={1.5} />}
               {node.supportType === 'roller' && (
                 <>
@@ -66,6 +69,14 @@ export function TrussDiagram(p: TrussDiagramProps) {
                   <circle cx={p.toSvgX(node.x) - 5} cy={p.toSvgY(node.y) + 22} r={4} className="fill-muted-foreground/60 stroke-muted-foreground" strokeWidth={1} />
                   <circle cx={p.toSvgX(node.x) + 5} cy={p.toSvgY(node.y) + 22} r={4} className="fill-muted-foreground/60 stroke-muted-foreground" strokeWidth={1} />
                 </>
+              )}
+              {node.supportType === 'lateral-pin' && (
+                <g>
+                  <title>Lateral pin: horizontal displacement restrained</title>
+                  <polygon points={`${p.toSvgX(node.x) - 8},${p.toSvgY(node.y)} ${p.toSvgX(node.x) - 22},${p.toSvgY(node.y) - 10} ${p.toSvgX(node.x) - 22},${p.toSvgY(node.y) + 10}`} className="fill-muted-foreground/60 stroke-muted-foreground" strokeWidth={1.5} />
+                  <line x1={p.toSvgX(node.x) - 24} y1={p.toSvgY(node.y) - 14} x2={p.toSvgX(node.x) - 24} y2={p.toSvgY(node.y) + 14} className="stroke-muted-foreground" strokeWidth={2} />
+                  {[-10, -3, 4, 11].map(offset => <line key={offset} x1={p.toSvgX(node.x) - 24} y1={p.toSvgY(node.y) + offset} x2={p.toSvgX(node.x) - 29} y2={p.toSvgY(node.y) + offset - 5} className="stroke-muted-foreground" strokeWidth={1} />)}
+                </g>
               )}
               {node.supportType === 'fixed' && (
                 <>

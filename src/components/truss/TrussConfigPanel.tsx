@@ -1,8 +1,8 @@
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
-import { Plus, Trash2, Play, ArrowDown } from "lucide-react";
+import { Plus, Trash2, Play, ArrowDown, Link2, Check } from "lucide-react";
 import { type TrussNode, type TrussMember, type PointLoad, type LoadCategory, DEFAULT_COV_BY_CATEGORY } from "@/lib/trussSolver";
 import { type TrussDisplayUnits, type TrussUnitSystem } from "./useTrussAnalysis";
 
@@ -21,7 +21,10 @@ interface TrussConfigPanelProps {
   pointLoads: PointLoad[]; setPointLoads: (v: PointLoad[]) => void;
   selectedNodeId: number | null; setSelectedNodeId: (v: number | null) => void;
   selectedMemberId: number | null; setSelectedMemberId: (v: number | null) => void;
-  addNode: () => void; addMember: () => void; addPointLoad: () => void;
+  addNodeAt: (x: number, y: number) => void;
+  startMemberConnection: () => void; finishMemberConnection: () => void;
+  memberConnectionMode: boolean; connectionStartNodeId: number | null; builderNotice: string | null;
+  addPointLoad: () => void;
   deleteNode: (id: number) => void; deleteMember: (id: number) => void; deletePointLoad: (id: number) => void;
   loadColors: string[];
   unitSystem: TrussUnitSystem; setUnitSystem: (v: TrussUnitSystem) => void;
@@ -32,7 +35,13 @@ type TrussTemplate = TrussConfigPanelProps["trussType"];
 
 export function TrussConfigPanel(p: TrussConfigPanelProps) {
   const du = p.du;
-  const isImp = du.system === "imperial";
+  const [newNodeX, setNewNodeX] = useState(p.spanLength / 2);
+  const [newNodeY, setNewNodeY] = useState(p.height / 2);
+
+  useEffect(() => {
+    setNewNodeX(p.spanLength / 2);
+    setNewNodeY(p.height / 2);
+  }, [p.spanLength, p.height]);
 
   return (
     <div className="glass-card p-6">
@@ -78,20 +87,33 @@ export function TrussConfigPanel(p: TrussConfigPanelProps) {
           </div>
           {p.trussType !== 'custom' && (
             <>
-              <div><label className="text-xs text-muted-foreground">Span Length: {(p.spanLength * du.length.factor).toFixed(1)} {du.length.unit}</label><Slider value={[p.spanLength]} onValueChange={([v]) => p.setSpanLength(v)} min={4} max={20} step={1} /></div>
-              <div><label className="text-xs text-muted-foreground">Height: {(p.height * du.length.factor).toFixed(1)} {du.length.unit}</label><Slider value={[p.height]} onValueChange={([v]) => p.setHeight(v)} min={1} max={6} step={0.5} /></div>
-              <div><label className="text-xs text-muted-foreground">Number of Panels: {p.numPanels}</label><Slider value={[p.numPanels]} onValueChange={([v]) => p.setNumPanels(v)} min={2} max={8} step={1} /></div>
-              <div><label className="text-xs text-muted-foreground">Default Load: {(p.appliedLoad * du.force.factor).toFixed(1)} {du.force.unit}</label><Slider value={[p.appliedLoad]} onValueChange={([v]) => p.setAppliedLoad(v)} min={5000} max={100000} step={5000} /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs text-muted-foreground">Span ({du.length.unit})</label><Input type="number" min={4 * du.length.factor} max={20 * du.length.factor} step="any" value={(p.spanLength * du.length.factor).toFixed(3)} onChange={(e) => { const value = Number(e.target.value); if (Number.isFinite(value)) p.setSpanLength(Math.max(4, Math.min(20, value / du.length.factor))); }} className="bg-muted/30" /></div>
+                <div><label className="text-xs text-muted-foreground">Height ({du.length.unit})</label><Input type="number" min={1 * du.length.factor} max={6 * du.length.factor} step="any" value={(p.height * du.length.factor).toFixed(3)} onChange={(e) => { const value = Number(e.target.value); if (Number.isFinite(value)) p.setHeight(Math.max(1, Math.min(6, value / du.length.factor))); }} className="bg-muted/30" /></div>
+                <div><label className="text-xs text-muted-foreground">Panels</label><Input type="number" min={2} max={8} step={1} value={p.numPanels} onChange={(e) => { const value = Number(e.target.value); if (Number.isFinite(value)) p.setNumPanels(Math.max(2, Math.min(8, Math.round(value)))); }} className="bg-muted/30" /></div>
+                <div><label className="text-xs text-muted-foreground">Default Load ({du.force.unit})</label><Input type="number" min={0} step="any" value={(p.appliedLoad * du.force.factor).toFixed(2)} onChange={(e) => { const value = Number(e.target.value); if (Number.isFinite(value)) p.setAppliedLoad(Math.max(0, value / du.force.factor)); }} className="bg-muted/30" /></div>
+              </div>
               <Button onClick={() => p.generateTruss(p.trussType)} className="w-full"><Play className="h-4 w-4 mr-2" />Generate {p.structureType === 'frame' ? 'Frame' : 'Truss'}</Button>
             </>
           )}
-          {p.trussType === 'custom' && (
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={p.addNode} variant="outline" size="sm"><Plus className="h-4 w-4 mr-1" />Add Node</Button>
-              <Button onClick={p.addMember} variant="outline" size="sm"><Plus className="h-4 w-4 mr-1" />Add Member</Button>
-              <Button onClick={p.addPointLoad} variant="outline" size="sm"><ArrowDown className="h-4 w-4 mr-1" />Add Load</Button>
+          <div className="space-y-3 rounded-lg border border-border bg-muted/10 p-3">
+            <div>
+              <h4 className="text-sm font-medium text-foreground">Quick Builder</h4>
+              <p className="mt-1 text-xs text-muted-foreground">Add nodes by coordinate, then click two nodes in the diagram to connect them. Generated layouts can be edited too.</p>
             </div>
-          )}
+            <div className="grid grid-cols-2 gap-2">
+              <div><label className="text-xs text-muted-foreground">New node X ({du.length.unit})</label><Input type="number" step="any" value={(newNodeX * du.length.factor).toFixed(3)} onChange={(e) => { const value = Number(e.target.value); if (Number.isFinite(value)) setNewNodeX(value / du.length.factor); }} className="bg-muted/30" /></div>
+              <div><label className="text-xs text-muted-foreground">New node Y ({du.length.unit})</label><Input type="number" step="any" value={(newNodeY * du.length.factor).toFixed(3)} onChange={(e) => { const value = Number(e.target.value); if (Number.isFinite(value)) setNewNodeY(value / du.length.factor); }} className="bg-muted/30" /></div>
+            </div>
+            <Button onClick={() => p.addNodeAt(newNodeX, newNodeY)} variant="outline" size="sm" className="w-full"><Plus className="h-4 w-4 mr-1" />Add Node at Coordinates</Button>
+            {p.memberConnectionMode ? (
+              <Button onClick={p.finishMemberConnection} variant="secondary" size="sm" className="w-full"><Check className="h-4 w-4 mr-1" />Done Connecting</Button>
+            ) : (
+              <Button onClick={p.startMemberConnection} variant="outline" size="sm" className="w-full"><Link2 className="h-4 w-4 mr-1" />Connect Members</Button>
+            )}
+            <Button onClick={p.addPointLoad} variant="outline" size="sm" className="w-full"><ArrowDown className="h-4 w-4 mr-1" />Add Load at Selected Node</Button>
+            {p.builderNotice && <p className={`text-xs ${p.memberConnectionMode ? 'text-primary' : 'text-muted-foreground'}`} role="status">{p.builderNotice}</p>}
+          </div>
         </div>
 
         {/* Middle Column - Node/Member Properties */}
@@ -114,10 +136,12 @@ export function TrussConfigPanel(p: TrussConfigPanelProps) {
                       <SelectItem value="none">None (Free)</SelectItem>
                       <SelectItem value="pin">Pin Support</SelectItem>
                       <SelectItem value="roller">Roller Support</SelectItem>
+                      <SelectItem value="lateral-pin">Lateral Pin (X restrained)</SelectItem>
                       <SelectItem value="fixed">Fixed Support</SelectItem>
                       <SelectItem value="hinge">Hinge</SelectItem>
                     </SelectContent>
                   </Select>
+                  {node.supportType === 'lateral-pin' && <p className="mt-1 text-xs text-muted-foreground">Restrains horizontal (X) movement; vertical (Y) movement remains free.</p>}
                 </div>
                 <Button variant="destructive" size="sm" onClick={() => p.deleteNode(p.selectedNodeId!)}><Trash2 className="h-4 w-4 mr-1" />Delete Node</Button>
               </div>

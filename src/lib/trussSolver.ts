@@ -16,7 +16,7 @@ export interface TrussNode {
   id: number;
   x: number;
   y: number;
-  supportType: 'none' | 'pin' | 'roller' | 'fixed' | 'hinge';
+  supportType: 'none' | 'pin' | 'roller' | 'lateral-pin' | 'fixed' | 'hinge';
   loadX: number;
   loadY: number;
 }
@@ -301,6 +301,8 @@ export function solvePlanarTruss(
       restrainedDOFs.add(2 * index + 1);
     } else if (node.supportType === 'roller') {
       restrainedDOFs.add(2 * index + 1);
+    } else if (node.supportType === 'lateral-pin') {
+      restrainedDOFs.add(2 * index); // Lateral pin restrains horizontal translation only.
     }
   });
   const freeDOFs = Array.from({ length: dofCount }, (_, dof) => dof).filter(dof => !restrainedDOFs.has(dof));

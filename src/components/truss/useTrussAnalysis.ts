@@ -61,6 +61,9 @@ export function useTrussAnalysis() {
 
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
+  const [memberConnectionMode, setMemberConnectionMode] = useState(false);
+  const [connectionStartNodeId, setConnectionStartNodeId] = useState<number | null>(null);
+  const [builderNotice, setBuilderNotice] = useState<string | null>(null);
   const [structureType, setStructureType] = useState<'truss' | 'frame'>('truss');
   const [trussType, setTrussType] = useState<'custom' | 'warren' | 'pratt' | 'howe'>('custom');
   const [spanLength, setSpanLength] = useState(6);
@@ -193,6 +196,11 @@ export function useTrussAnalysis() {
     setNodes(newNodes);
     setMembers(newMembers);
     setPointLoads(newLoads);
+    setSelectedNodeId(null);
+    setSelectedMemberId(null);
+    setMemberConnectionMode(false);
+    setConnectionStartNodeId(null);
+    setBuilderNotice(`Generated ${type} layout with ${newNodes.length} nodes and ${newMembers.length} members.`);
   }, [spanLength, height, numPanels, appliedLoad, structureType]);
 
   // Axial member forces from the 2D direct stiffness method.
@@ -490,24 +498,107 @@ export function useTrussAnalysis() {
   const toSvgX = (x: number) => { const r = (x - bounds.minX) * scaleVal + 50; return isFinite(r) ? r : 50; };
   const toSvgY = (y: number) => { const r = svgHeight - (y - bounds.minY) * scaleVal - 30; return isFinite(r) ? r : svgHeight / 2; };
 
-  const addNode = () => {
+  const addNodeAt = useCallback((x: number, y: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      setBuilderNotice('Enter valid X and Y coordinates before adding a node.');
+      return;
+    }
+    const existingNode = nodes.find(node => Math.hypot(node.x - x, node.y - y) < 1e-6);
+    if (existingNode) {
+      setSelectedNodeId(existingNode.id);
+      setSelectedMemberId(null);
+      setBuilderNotice(`A node already exists at that location (Node ${existingNode.id}).`);
+      return;
+    }
     const newId = Math.max(...nodes.map(n => n.id), 0) + 1;
-    setNodes([...nodes, { id: newId, x: spanLength / 2, y: height / 2, supportType: 'none', loadX: 0, loadY: 0 }]);
-  };
+    setNodes([...nodes, { id: newId, x, y, supportType: 'none', loadX: 0, loadY: 0 }]);
+    setSelectedNodeId(newId);
+    setSelectedMemberId(null);
+    setBuilderNotice(`Added Node ${newId}. You can connect it to another node.`);
+  }, [nodes]);
 
-  const addMember = () => {
-    if (nodes.length < 2) return;
-    const newId = Math.max(...members.map(m => m.id), 0) + 1;
+  const startMemberConnection = useCallback(() => {
+    setMemberConnectionMode(true);
+    setConnectionStartNodeId(selectedNodeId);
+    setSelectedMemberId(null);
+    setBuilderNotice(selectedNodeId
+      ? `Click another node to connect it to Node ${selectedNodeId}.`
+      : 'Click a node in the diagram to choose the first end of a member.');
+  }, [selectedNodeId]);
+
+  const finishMemberConnection = useCallback(() => {
+    setMemberConnectionMode(false);
+    setConnectionStartNodeId(null);
+    setBuilderNotice('Member connection mode ended.');
+  }, []);
+
+  const handleTrussNodeClick = useCallback((nodeId: number) => {
+    if (!memberConnectionMode) {
+      setSelectedNodeId(nodeId);
+      setSelectedMemberId(null);
+      return;
+    }
+    if (connectionStartNodeId === null) {
+      setConnectionStartNodeId(nodeId);
+      setSelectedNodeId(nodeId);
+      setSelectedMemberId(null);
+      setBuilderNotice(`Node ${nodeId} selected. Click another node to add a member.`);
+      return;
+    }
+    if (connectionStartNodeId === nodeId) {
+      setBuilderNotice('Choose a different node for the other end of the member.');
+      return;
+    }
+
+    const existingMember = members.find(member =>
+      (member.startNode === connectionStartNodeId && member.endNode === nodeId) ||
+      (member.startNode === nodeId && member.endNode === connectionStartNodeId),
+    );
+    if (existingMember) {
+      setConnectionStartNodeId(nodeId);
+      setBuilderNotice(`Those nodes are already connected by Member ${existingMember.id}. Continue from Node ${nodeId}.`);
+      return;
+    }
+
+    const newId = Math.max(...members.map(member => member.id), 0) + 1;
     setMembers([...members, {
-      id: newId, startNode: nodes[0].id, endNode: nodes[1].id, area: 0.001, elasticModulus: 200e9,
-      isRigid: structureType === 'frame', yieldStrength: DEFAULT_YIELD_STRENGTH, yieldStrengthCoV: DEFAULT_YIELD_COV, areaCoV: DEFAULT_AREA_COV
+      id: newId,
+      startNode: connectionStartNodeId,
+      endNode: nodeId,
+      area: 0.001,
+      elasticModulus: 200e9,
+      isRigid: structureType === 'frame',
+      yieldStrength: DEFAULT_YIELD_STRENGTH,
+      yieldStrengthCoV: DEFAULT_YIELD_COV,
+      areaCoV: DEFAULT_AREA_COV,
     }]);
     setSelectedMemberId(newId);
-  };
+    setSelectedNodeId(null);
+    setConnectionStartNodeId(nodeId);
+    setBuilderNotice(`Added Member ${newId}. Click another node to continue from Node ${nodeId}, or choose Done.`);
+  }, [connectionStartNodeId, memberConnectionMode, members, structureType]);
 
   const deleteMember = (id: number) => { setMembers(members.filter(m => m.id !== id)); if (selectedMemberId === id) setSelectedMemberId(null); };
-  const deleteNode = (id: number) => { setNodes(nodes.filter(n => n.id !== id)); setMembers(members.filter(m => m.startNode !== id && m.endNode !== id)); setPointLoads(pointLoads.filter(l => l.nodeId !== id)); if (selectedNodeId === id) setSelectedNodeId(null); };
-  const addPointLoad = () => { if (nodes.length === 0) return; const newId = Math.max(...pointLoads.map(l => l.id), 0) + 1; setPointLoads([...pointLoads, { id: newId, nodeId: nodes[0].id, magnitude: 10000, angle: 0, magnitudeCoV: DEFAULT_LOAD_COV, category: 'live' }]); };
+  const deleteNode = (id: number) => {
+    setNodes(nodes.filter(n => n.id !== id));
+    setMembers(members.filter(m => m.startNode !== id && m.endNode !== id));
+    setPointLoads(pointLoads.filter(l => l.nodeId !== id));
+    if (selectedNodeId === id) setSelectedNodeId(null);
+    if (connectionStartNodeId === id) {
+      setConnectionStartNodeId(null);
+      setBuilderNotice('The selected connection node was deleted. Choose a new start node.');
+    }
+  };
+  const addPointLoad = () => {
+    if (nodes.length === 0) {
+      setBuilderNotice('Add a node before placing a load.');
+      return;
+    }
+    const newId = Math.max(...pointLoads.map(l => l.id), 0) + 1;
+    const nodeId = selectedNodeId ?? nodes[0].id;
+    setPointLoads([...pointLoads, { id: newId, nodeId, magnitude: 10000, angle: 0, magnitudeCoV: DEFAULT_LOAD_COV, category: 'live' }]);
+    setBuilderNotice(`Added a load at Node ${nodeId}.`);
+  };
   const deletePointLoad = (id: number) => { setPointLoads(pointLoads.filter(l => l.id !== id)); };
 
   const maxForce = Math.max(...memberResults.map(r => Math.abs(r.force)), 1);
@@ -518,6 +609,7 @@ export function useTrussAnalysis() {
     // State
     nodes, setNodes, members, setMembers, pointLoads, setPointLoads,
     selectedNodeId, setSelectedNodeId, selectedMemberId, setSelectedMemberId,
+    memberConnectionMode, connectionStartNodeId, builderNotice,
     structureType, setStructureType, trussType, setTrussType,
     spanLength, setSpanLength, height, setHeight, numPanels, setNumPanels,
     appliedLoad, setAppliedLoad,
@@ -540,7 +632,8 @@ export function useTrussAnalysis() {
     // Viz
     svgWidth, svgHeight, toSvgX, toSvgY, maxForce, loadColors,
     // Actions
-    generateTruss, addNode, addMember, deleteMember, deleteNode, addPointLoad, deletePointLoad,
+    generateTruss, addNodeAt, startMemberConnection, finishMemberConnection, handleTrussNodeClick,
+    deleteMember, deleteNode, addPointLoad, deletePointLoad,
   };
 }
 

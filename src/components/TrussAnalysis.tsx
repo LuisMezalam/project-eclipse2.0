@@ -29,7 +29,10 @@ export function TrussAnalysis() {
         pointLoads={t.pointLoads} setPointLoads={t.setPointLoads}
         selectedNodeId={t.selectedNodeId} setSelectedNodeId={t.setSelectedNodeId}
         selectedMemberId={t.selectedMemberId} setSelectedMemberId={t.setSelectedMemberId}
-        addNode={t.addNode} addMember={t.addMember} addPointLoad={t.addPointLoad}
+        addNodeAt={t.addNodeAt}
+        startMemberConnection={t.startMemberConnection} finishMemberConnection={t.finishMemberConnection}
+        memberConnectionMode={t.memberConnectionMode} connectionStartNodeId={t.connectionStartNodeId} builderNotice={t.builderNotice}
+        addPointLoad={t.addPointLoad}
         deleteNode={t.deleteNode} deleteMember={t.deleteMember} deletePointLoad={t.deletePointLoad}
         loadColors={t.loadColors}
         unitSystem={t.unitSystem} setUnitSystem={t.setUnitSystem} du={t.du}
@@ -38,8 +41,10 @@ export function TrussAnalysis() {
       <TrussDiagram
         nodes={t.nodes} members={t.members} memberResults={t.memberResults}
         pointLoads={t.pointLoads}
-        selectedNodeId={t.selectedNodeId} setSelectedNodeId={t.setSelectedNodeId}
+        selectedNodeId={t.selectedNodeId}
         selectedMemberId={t.selectedMemberId} setSelectedMemberId={t.setSelectedMemberId}
+        memberConnectionMode={t.memberConnectionMode} connectionStartNodeId={t.connectionStartNodeId}
+        onNodeClick={t.handleTrussNodeClick}
         structureType={t.structureType}
         svgWidth={t.svgWidth} svgHeight={t.svgHeight}
         toSvgX={t.toSvgX} toSvgY={t.toSvgY}
