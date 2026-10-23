@@ -4,7 +4,7 @@
  */
 
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine, ReferenceArea } from "recharts";
-import { Slider } from "@/components/ui/slider";
+import { BeamNumberField } from "./BeamNumberField";
 import { chartTooltipStyle, loadColors } from "./beamTypes";
 import type { LoadType, InfluencePoint } from "@/lib/reliability";
 
@@ -118,11 +118,16 @@ export function InfluenceLines({
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-foreground">Influence Lines</h3>
         <div className="flex items-center gap-3">
-          <label className="text-xs text-muted-foreground">
-            Measurement Point: {xm} {lu} ({(influenceMeasurePoint * 100).toFixed(0)}%)
-          </label>
-          <Slider value={[influenceMeasurePoint]} onValueChange={([v]) => setInfluenceMeasurePoint(v)}
-            min={0.05} max={0.95} step={0.05} className="w-40" />
+          <BeamNumberField
+            label="Measurement point"
+            value={influenceMeasurePoint * displayBeamLength}
+            unit={lu}
+            min={0.05 * displayBeamLength}
+            max={0.95 * displayBeamLength}
+            step={0.01}
+            className="w-44"
+            onChange={(value) => setInfluenceMeasurePoint(value / displayBeamLength)}
+          />
         </div>
       </div>
 

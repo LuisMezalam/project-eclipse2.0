@@ -3,11 +3,10 @@
  * cross-section, and material properties.
  */
 
-import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Play, Pause, RotateCcw, Layers, Settings2, ArrowDownUp } from "lucide-react";
+import { BeamNumberField } from "./BeamNumberField";
 import { CrossSectionDiagram } from "../CrossSectionDiagram";
 import { LoadTypeDiagram } from "../LoadTypeDiagram";
 import { HybridLoadBuilder } from "../HybridLoadBuilder";
@@ -56,8 +55,19 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
               <div key={idx} className="flex items-center gap-3">
                 <span className="text-xs text-muted-foreground w-20">Support {idx + 1}</span>
                 <div className="flex-1">
-                  <label className="text-xs text-muted-foreground">Position: {b.convertLengthToDisplay(support.position * b.beamLength).toFixed(2)} {b.lengthUnit}</label>
-                  <Slider value={[support.position]} onValueChange={([v]) => { const n = [...b.supports]; n[idx] = { ...n[idx], position: v }; b.setSupports(n); }} min={0} max={1} step={0.05} />
+                  <BeamNumberField
+                    label="Position"
+                    value={b.convertLengthToDisplay(support.position * b.beamLength)}
+                    unit={b.lengthUnit}
+                    min={0}
+                    max={b.convertLengthToDisplay(b.beamLength)}
+                    step={0.01}
+                    onChange={(v) => {
+                      const n = [...b.supports];
+                      n[idx] = { ...n[idx], position: b.convertLengthFromDisplay(v) / b.beamLength };
+                      b.setSupports(n);
+                    }}
+                  />
                 </div>
                 <Select value={support.type} onValueChange={(v) => { const n = [...b.supports]; n[idx] = { ...n[idx], type: v as SupportType }; b.setSupports(n); }}>
                   <SelectTrigger className="w-28 bg-muted/30 border-border"><SelectValue /></SelectTrigger>
@@ -121,8 +131,14 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
             <div className="space-y-4">
               <HybridLoadBuilder loads={b.hybridLoads} onLoadsChange={b.setHybridLoads} beamLength={b.beamLength} />
               <div>
-                <label className="text-xs text-muted-foreground">Beam Length L: {b.convertLengthToDisplay(b.beamLength).toFixed(2)} {b.lengthUnit}</label>
-                <Slider value={[b.beamLength]} onValueChange={([v]) => b.setBeamLength(v)} min={2} max={12} step={0.5} />
+                <BeamNumberField
+                  label="Beam Length L"
+                  value={b.convertLengthToDisplay(b.beamLength)}
+                  unit={b.lengthUnit}
+                  min={b.convertLengthToDisplay(0.01)}
+                  step={0.01}
+                  onChange={(v) => b.setBeamLength(b.convertLengthFromDisplay(v))}
+                />
               </div>
               {b.hybridLoads.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-border/30">
@@ -181,11 +197,19 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
 
       {/* Load Intensity */}
       <div className="space-y-2">
-        <label className="text-xs text-muted-foreground">Load Intensity</label>
-        <div className="flex gap-2">
-          <Input type="number" value={b.convertForceToDisplay(b.loadIntensity).toFixed(2)}
-            onChange={(e) => { const v = b.convertForceFromDisplay(parseFloat(e.target.value) || 0); b.setLoadIntensity(v); if (b.ctx.isSynced) b.ctx.setLoadMean(v / 1000); }}
-            className="flex-1 bg-muted/30 border-border" />
+        <div className="flex gap-2 items-end">
+          <BeamNumberField
+            label="Load Intensity"
+            value={b.convertForceToDisplay(b.loadIntensity)}
+            min={0}
+            step={0.01}
+            className="flex-1"
+            onChange={(displayValue) => {
+              const value = b.convertForceFromDisplay(displayValue);
+              b.setLoadIntensity(value);
+              if (b.ctx.isSynced) b.ctx.setLoadMean(value / 1000);
+            }}
+          />
           <Select value={(isPointLike || isMomentLike) ? b.forceUnit : b.distributedForceUnit}
             onValueChange={(v) => { if (isPointLike || isMomentLike) b.setForceUnit(v as ForceUnit); else b.setDistributedForceUnit(v as DistributedForceUnit); }}>
             <SelectTrigger className="w-24 bg-muted/30 border-border"><SelectValue /></SelectTrigger>
@@ -200,8 +224,6 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
             </SelectContent>
           </Select>
         </div>
-        <Slider value={[b.loadIntensity]} onValueChange={([v]) => { b.setLoadIntensity(v); if (b.ctx.isSynced) b.ctx.setLoadMean(v / 1000); }}
-          min={1000} max={isPointLike ? 50000 : 20000} step={500} />
       </div>
 
       {/* Invert */}
@@ -215,12 +237,16 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
       {/* Force Angle */}
       {isPointLike && (
         <div className="space-y-2">
-          <label className="text-xs text-muted-foreground">Force Angle: {b.forceAngle}° from vertical</label>
-          <div className="flex gap-2 items-center">
-            <Slider value={[b.forceAngle]} onValueChange={([v]) => b.setForceAngle(v)} min={-90} max={90} step={5} className="flex-1" />
-            <Input type="number" value={b.forceAngle} onChange={(e) => b.setForceAngle(Math.max(-90, Math.min(90, parseFloat(e.target.value) || 0)))} className="w-16 bg-muted/30 border-border text-center" />
-            <span className="text-xs text-muted-foreground">°</span>
-          </div>
+          <BeamNumberField
+            label="Force Angle from vertical"
+            value={b.forceAngle}
+            unit="°"
+            min={-90}
+            max={90}
+            step={1}
+            precision={1}
+            onChange={b.setForceAngle}
+          />
           <p className="text-xs text-muted-foreground">
             Vertical: P<sub>v</sub> = {(b.loadIntensity * Math.cos(b.forceAngle * Math.PI / 180) * du.force.factor).toFixed(2)} {du.force.unit} |
             Horizontal: P<sub>h</sub> = {(b.loadIntensity * Math.sin(b.forceAngle * Math.PI / 180) * du.force.factor).toFixed(2)} {du.force.unit}
@@ -229,26 +255,41 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
       )}
 
       {/* Beam Length */}
-      <div className="space-y-2">
-        <label className="text-xs text-muted-foreground">Beam Length</label>
-        <div className="flex gap-2">
-          <Input type="number" value={b.convertLengthToDisplay(b.beamLength).toFixed(2)}
-            onChange={(e) => { const v = b.convertLengthFromDisplay(parseFloat(e.target.value) || 0); b.setBeamLength(Math.max(0.5, Math.min(20, v))); if (b.ctx.isSynced) b.ctx.setBeamLength(v); }}
-            className="flex-1 bg-muted/30 border-border" />
+      <div className="flex gap-2 items-end">
+        <BeamNumberField
+          label="Beam Length L"
+          value={b.convertLengthToDisplay(b.beamLength)}
+          unit={b.lengthUnit}
+          min={b.convertLengthToDisplay(0.01)}
+          step={0.01}
+          precision={3}
+          className="flex-1"
+          onChange={(displayValue) => {
+            const value = b.convertLengthFromDisplay(displayValue);
+            b.setBeamLength(value);
+            if (b.ctx.isSynced) b.ctx.setBeamLength(value);
+          }}
+        />
+        <div className="space-y-1">
+          <span className="block text-xs text-muted-foreground">Length unit</span>
           <Select value={b.lengthUnit} onValueChange={(v) => b.setLengthUnit(v as LengthUnit)}>
             <SelectTrigger className="w-20 bg-muted/30 border-border"><SelectValue /></SelectTrigger>
             <SelectContent>{["m","mm","ft","in"].map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        <Slider value={[b.beamLength]} onValueChange={([v]) => { b.setBeamLength(v); if (b.ctx.isSynced) b.ctx.setBeamLength(v); }} min={2} max={12} step={0.5} />
       </div>
 
       {/* Load-specific controls */}
       {b.loadType === "concentrated" && (
-        <div>
-          <label className="text-xs text-muted-foreground">Load Position: {b.convertLengthToDisplay(b.concentratedPosition * b.beamLength).toFixed(2)} {lUnit} ({(b.concentratedPosition * 100).toFixed(0)}%)</label>
-          <Slider value={[b.concentratedPosition]} onValueChange={([v]) => b.setConcentratedPosition(v)} min={0.1} max={0.9} step={0.05} />
-        </div>
+        <BeamNumberField
+          label={`Load Position (${(b.concentratedPosition * 100).toFixed(0)}% along beam)`}
+          value={b.convertLengthToDisplay(b.concentratedPosition * b.beamLength)}
+          unit={lUnit}
+          min={0}
+          max={b.convertLengthToDisplay(b.beamLength)}
+          step={0.01}
+          onChange={(v) => b.setConcentratedPosition(b.convertLengthFromDisplay(v) / b.beamLength)}
+        />
       )}
 
       {b.loadType === "triangular" && (() => {
@@ -267,26 +308,43 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
               </Select>
             </div>
             <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">Slope Angle: {slopeAngle.toFixed(1)}°</label>
-              <Slider value={[slopeAngle]} onValueChange={([angle]) => {
-                const rad = Math.max(angle, 1) * Math.PI / 180;
-                const desiredBase = (b.loadIntensity / 1000) / Math.tan(rad);
-                const ratio = Math.max(0.1, Math.min(1, desiredBase / b.beamLength));
-                if (b.triangularPeak === 0) b.setTriEnd(Math.min(1, b.triStart + ratio));
-                else b.setTriStart(Math.max(0, b.triEnd - ratio));
-              }} min={5} max={85} step={1} />
+              <BeamNumberField
+                label="Slope Angle"
+                value={slopeAngle}
+                unit="°"
+                min={5}
+                max={85}
+                step={0.1}
+                precision={1}
+                onChange={(angle) => {
+                  const rad = Math.max(angle, 1) * Math.PI / 180;
+                  const desiredBase = (b.loadIntensity / 1000) / Math.tan(rad);
+                  const ratio = Math.max(0.1, Math.min(1, desiredBase / b.beamLength));
+                  if (b.triangularPeak === 0) b.setTriEnd(Math.min(1, b.triStart + ratio));
+                  else b.setTriStart(Math.max(0, b.triEnd - ratio));
+                }}
+              />
             </div>
             <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">Base: {b.convertLengthToDisplay(b.triStart * b.beamLength).toFixed(2)} {lUnit} to {b.convertLengthToDisplay(b.triEnd * b.beamLength).toFixed(2)} {lUnit}</label>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-xs text-muted-foreground">Start</span>
-                  <Slider value={[b.triStart]} onValueChange={([v]) => b.setTriStart(Math.min(v, b.triEnd - 0.1))} min={0} max={0.9} step={0.05} />
-                </div>
-                <div>
-                  <span className="text-xs text-muted-foreground">End</span>
-                  <Slider value={[b.triEnd]} onValueChange={([v]) => b.setTriEnd(Math.max(v, b.triStart + 0.1))} min={0.1} max={1} step={0.05} />
-                </div>
+                <BeamNumberField
+                  label="Base start"
+                  value={b.convertLengthToDisplay(b.triStart * b.beamLength)}
+                  unit={lUnit}
+                  min={0}
+                  max={b.convertLengthToDisplay((b.triEnd - 0.1) * b.beamLength)}
+                  step={0.01}
+                  onChange={(v) => b.setTriStart(b.convertLengthFromDisplay(v) / b.beamLength)}
+                />
+                <BeamNumberField
+                  label="Base end"
+                  value={b.convertLengthToDisplay(b.triEnd * b.beamLength)}
+                  unit={lUnit}
+                  min={b.convertLengthToDisplay((b.triStart + 0.1) * b.beamLength)}
+                  max={b.convertLengthToDisplay(b.beamLength)}
+                  step={0.01}
+                  onChange={(v) => b.setTriEnd(b.convertLengthFromDisplay(v) / b.beamLength)}
+                />
               </div>
             </div>
           </div>
@@ -295,35 +353,83 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
 
       {b.loadType === "partial-udl" && (
         <div className="space-y-2">
-          <label className="text-xs text-muted-foreground">Load Range: {b.convertLengthToDisplay(b.partialStart * b.beamLength).toFixed(2)} {lUnit} to {b.convertLengthToDisplay(b.partialEnd * b.beamLength).toFixed(2)} {lUnit}</label>
           <div className="grid grid-cols-2 gap-4">
-            <div><span className="text-xs text-muted-foreground">Start</span><Slider value={[b.partialStart]} onValueChange={([v]) => b.setPartialStart(Math.min(v, b.partialEnd - 0.1))} min={0} max={0.9} step={0.05} /></div>
-            <div><span className="text-xs text-muted-foreground">End</span><Slider value={[b.partialEnd]} onValueChange={([v]) => b.setPartialEnd(Math.max(v, b.partialStart + 0.1))} min={0.1} max={1} step={0.05} /></div>
+            <BeamNumberField
+              label="Load start"
+              value={b.convertLengthToDisplay(b.partialStart * b.beamLength)}
+              unit={lUnit}
+              min={0}
+              max={b.convertLengthToDisplay((b.partialEnd - 0.1) * b.beamLength)}
+              step={0.01}
+              onChange={(v) => b.setPartialStart(b.convertLengthFromDisplay(v) / b.beamLength)}
+            />
+            <BeamNumberField
+              label="Load end"
+              value={b.convertLengthToDisplay(b.partialEnd * b.beamLength)}
+              unit={lUnit}
+              min={b.convertLengthToDisplay((b.partialStart + 0.1) * b.beamLength)}
+              max={b.convertLengthToDisplay(b.beamLength)}
+              step={0.01}
+              onChange={(v) => b.setPartialEnd(b.convertLengthFromDisplay(v) / b.beamLength)}
+            />
           </div>
         </div>
       )}
 
       {b.loadType === "trapezoidal" && (
         <div className="space-y-2">
-          <div><label className="text-xs text-muted-foreground">Start Intensity: {(b.trapStartIntensity * du.distForce.factor).toFixed(1)} {du.distForce.unit}</label><Slider value={[b.trapStartIntensity]} onValueChange={([v]) => b.setTrapStartIntensity(v)} min={1000} max={20000} step={500} /></div>
-          <div><label className="text-xs text-muted-foreground">End Intensity: {(b.trapEndIntensity * du.distForce.factor).toFixed(1)} {du.distForce.unit}</label><Slider value={[b.trapEndIntensity]} onValueChange={([v]) => b.setTrapEndIntensity(v)} min={1000} max={20000} step={500} /></div>
+          <BeamNumberField
+            label="Start Intensity"
+            value={b.trapStartIntensity * du.distForce.factor}
+            unit={du.distForce.unit}
+            min={0}
+            step={0.01}
+            onChange={(v) => b.setTrapStartIntensity(v / du.distForce.factor)}
+          />
+          <BeamNumberField
+            label="End Intensity"
+            value={b.trapEndIntensity * du.distForce.factor}
+            unit={du.distForce.unit}
+            min={0}
+            step={0.01}
+            onChange={(v) => b.setTrapEndIntensity(v / du.distForce.factor)}
+          />
         </div>
       )}
 
       {b.loadType === "moment" && (
-        <div><label className="text-xs text-muted-foreground">Moment Position: {b.convertLengthToDisplay(b.momentPosition * b.beamLength).toFixed(2)} {lUnit}</label><Slider value={[b.momentPosition]} onValueChange={([v]) => b.setMomentPosition(v)} min={0.1} max={0.9} step={0.05} /></div>
+        <BeamNumberField
+          label="Moment Position"
+          value={b.convertLengthToDisplay(b.momentPosition * b.beamLength)}
+          unit={lUnit}
+          min={0}
+          max={b.convertLengthToDisplay(b.beamLength)}
+          step={0.01}
+          onChange={(v) => b.setMomentPosition(b.convertLengthFromDisplay(v) / b.beamLength)}
+        />
       )}
 
       {b.loadType === "moving" && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-xs text-muted-foreground">Load Position: {b.convertLengthToDisplay(b.movingPosition * b.beamLength).toFixed(2)} {lUnit}</label>
+            <span className="text-xs text-muted-foreground">Moving load position</span>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => b.setIsAnimating(!b.isAnimating)}>{b.isAnimating ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</Button>
               <Button size="sm" variant="outline" onClick={() => { b.setIsAnimating(false); b.setMovingPosition(0); }}><RotateCcw className="h-4 w-4" /></Button>
             </div>
           </div>
-          <Slider value={[b.movingPosition]} onValueChange={([v]) => { b.setIsAnimating(false); b.setMovingPosition(v); }} min={0} max={1} step={0.02} />
+          <BeamNumberField
+            label="Position"
+            value={b.convertLengthToDisplay(b.movingPosition * b.beamLength)}
+            unit={lUnit}
+            min={0}
+            max={b.convertLengthToDisplay(b.beamLength)}
+            step={0.01}
+            onChange={(v) => {
+              b.setIsAnimating(false);
+              b.setMovingPosition(b.convertLengthFromDisplay(v) / b.beamLength);
+            }}
+          />
         </div>
       )}
 
@@ -334,11 +440,18 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
   );
 }
 
-/** Cross-section type selector + dimension sliders + material properties */
+/** Cross-section type selector, dimension inputs, and material properties */
 function CrossSectionControls({ b }: { b: BeamHook }) {
   const du = b.displayUnits;
   const df = b.dimFactor;
   const dUnit = b.dimUnit;
+  const metric = !b.isImperial;
+  const widthMin = metric ? 50 : 2;
+  const heightMin = metric ? 100 : 4;
+  const dimensionStep = metric ? 1 : 0.05;
+  const innerWidthMin = metric ? 30 : 1;
+  const innerHeightMin = metric ? 60 : 2;
+  const wallClearance = metric ? 20 : 0.5;
 
   return (
     <>
@@ -358,47 +471,113 @@ function CrossSectionControls({ b }: { b: BeamHook }) {
 
       {b.crossSectionType === "rectangular" && (
         <>
-          <div><label className="text-xs text-muted-foreground">Width b: {(b.sectionWidth * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.sectionWidth * df]} onValueChange={([v]) => b.setSectionWidth(b.dimToInternal(v))} min={b.isImperial ? 2 : 50} max={b.isImperial ? 20 : 500} step={b.isImperial ? 0.25 : 10} /></div>
-          <div><label className="text-xs text-muted-foreground">Height h: {(b.sectionHeight * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.sectionHeight * df]} onValueChange={([v]) => b.setSectionHeight(b.dimToInternal(v))} min={b.isImperial ? 4 : 100} max={b.isImperial ? 32 : 800} step={b.isImperial ? 0.25 : 10} /></div>
+          <BeamNumberField label="Width b" value={b.sectionWidth * df} unit={dUnit} min={widthMin} step={dimensionStep} onChange={(v) => b.setSectionWidth(b.dimToInternal(v))} />
+          <BeamNumberField label="Height h" value={b.sectionHeight * df} unit={dUnit} min={heightMin} step={dimensionStep} onChange={(v) => b.setSectionHeight(b.dimToInternal(v))} />
         </>
       )}
       {b.crossSectionType === "circular" && (
-        <div><label className="text-xs text-muted-foreground">Diameter d: {(b.sectionDiameter * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.sectionDiameter * df]} onValueChange={([v]) => b.setSectionDiameter(b.dimToInternal(v))} min={b.isImperial ? 2 : 50} max={b.isImperial ? 20 : 500} step={b.isImperial ? 0.25 : 10} /></div>
+        <BeamNumberField label="Diameter d" value={b.sectionDiameter * df} unit={dUnit} min={widthMin} step={dimensionStep} onChange={(v) => b.setSectionDiameter(b.dimToInternal(v))} />
       )}
       {b.crossSectionType === "hollow-rectangular" && (
         <>
           <div className="grid grid-cols-2 gap-2">
-            <div><label className="text-xs text-muted-foreground">Outer W: {(b.sectionWidth * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.sectionWidth * df]} onValueChange={([v]) => b.setSectionWidth(b.dimToInternal(v))} min={b.isImperial ? 2 : 50} max={b.isImperial ? 16 : 400} step={b.isImperial ? 0.25 : 10} /></div>
-            <div><label className="text-xs text-muted-foreground">Outer H: {(b.sectionHeight * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.sectionHeight * df]} onValueChange={([v]) => b.setSectionHeight(b.dimToInternal(v))} min={b.isImperial ? 4 : 100} max={b.isImperial ? 24 : 600} step={b.isImperial ? 0.25 : 10} /></div>
+            <BeamNumberField
+              label="Outer width"
+              value={b.sectionWidth * df}
+              unit={dUnit}
+              min={widthMin}
+              step={dimensionStep}
+              onChange={(v) => {
+                b.setSectionWidth(b.dimToInternal(v));
+                const maxInnerWidth = v - wallClearance;
+                if (b.innerWidth * df > maxInnerWidth) b.setInnerWidth(b.dimToInternal(Math.max(innerWidthMin, maxInnerWidth)));
+              }}
+            />
+            <BeamNumberField
+              label="Outer height"
+              value={b.sectionHeight * df}
+              unit={dUnit}
+              min={heightMin}
+              step={dimensionStep}
+              onChange={(v) => {
+                b.setSectionHeight(b.dimToInternal(v));
+                const maxInnerHeight = v - wallClearance;
+                if (b.innerHeight * df > maxInnerHeight) b.setInnerHeight(b.dimToInternal(Math.max(innerHeightMin, maxInnerHeight)));
+              }}
+            />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div><label className="text-xs text-muted-foreground">Inner W: {(b.innerWidth * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.innerWidth * df]} onValueChange={([v]) => b.setInnerWidth(b.dimToInternal(v))} min={b.isImperial ? 1 : 30} max={b.sectionWidth * df - (b.isImperial ? 0.5 : 20)} step={b.isImperial ? 0.25 : 10} /></div>
-            <div><label className="text-xs text-muted-foreground">Inner H: {(b.innerHeight * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.innerHeight * df]} onValueChange={([v]) => b.setInnerHeight(b.dimToInternal(v))} min={b.isImperial ? 2 : 60} max={b.sectionHeight * df - (b.isImperial ? 0.5 : 20)} step={b.isImperial ? 0.25 : 10} /></div>
+            <BeamNumberField label="Inner width" value={b.innerWidth * df} unit={dUnit} min={innerWidthMin} max={b.sectionWidth * df - wallClearance} step={dimensionStep} onChange={(v) => b.setInnerWidth(b.dimToInternal(v))} />
+            <BeamNumberField label="Inner height" value={b.innerHeight * df} unit={dUnit} min={innerHeightMin} max={b.sectionHeight * df - wallClearance} step={dimensionStep} onChange={(v) => b.setInnerHeight(b.dimToInternal(v))} />
           </div>
         </>
       )}
       {b.crossSectionType === "hollow-circular" && (
         <>
-          <div><label className="text-xs text-muted-foreground">Outer Diameter: {(b.sectionDiameter * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.sectionDiameter * df]} onValueChange={([v]) => b.setSectionDiameter(b.dimToInternal(v))} min={b.isImperial ? 2 : 50} max={b.isImperial ? 20 : 500} step={b.isImperial ? 0.25 : 10} /></div>
-          <div><label className="text-xs text-muted-foreground">Inner Diameter: {(b.innerDiameter * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.innerDiameter * df]} onValueChange={([v]) => b.setInnerDiameter(b.dimToInternal(v))} min={b.isImperial ? 1 : 30} max={b.sectionDiameter * df - (b.isImperial ? 0.25 : 10)} step={b.isImperial ? 0.25 : 10} /></div>
+          <BeamNumberField
+            label="Outer diameter"
+            value={b.sectionDiameter * df}
+            unit={dUnit}
+            min={widthMin}
+            step={dimensionStep}
+            onChange={(v) => {
+              b.setSectionDiameter(b.dimToInternal(v));
+              const maxInnerDiameter = v - (metric ? 10 : 0.25);
+              if (b.innerDiameter * df > maxInnerDiameter) b.setInnerDiameter(b.dimToInternal(Math.max(innerWidthMin, maxInnerDiameter)));
+            }}
+          />
+          <BeamNumberField label="Inner diameter" value={b.innerDiameter * df} unit={dUnit} min={innerWidthMin} max={b.sectionDiameter * df - (metric ? 10 : 0.25)} step={dimensionStep} onChange={(v) => b.setInnerDiameter(b.dimToInternal(v))} />
         </>
       )}
       {b.crossSectionType === "i-beam" && (
         <>
-          <div><label className="text-xs text-muted-foreground">Total Height: {(b.sectionHeight * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.sectionHeight * df]} onValueChange={([v]) => b.setSectionHeight(b.dimToInternal(v))} min={b.isImperial ? 6 : 150} max={b.isImperial ? 32 : 800} step={b.isImperial ? 0.25 : 10} /></div>
-          <div><label className="text-xs text-muted-foreground">Flange Width: {(b.flangeWidth * df).toFixed(b.isImperial ? 2 : 0)} {dUnit}</label><Slider value={[b.flangeWidth * df]} onValueChange={([v]) => b.setFlangeWidth(b.dimToInternal(v))} min={b.isImperial ? 2 : 50} max={b.isImperial ? 16 : 400} step={b.isImperial ? 0.25 : 10} /></div>
+          <BeamNumberField
+            label="Total height"
+            value={b.sectionHeight * df}
+            unit={dUnit}
+            min={metric ? 150 : 6}
+            step={dimensionStep}
+            onChange={(v) => {
+              b.setSectionHeight(b.dimToInternal(v));
+              const maxFlangeThickness = v / 2 - (metric ? 5 : 0.2);
+              if (b.flangeThickness * df > maxFlangeThickness) b.setFlangeThickness(b.dimToInternal(Math.max(metric ? 5 : 0.2, maxFlangeThickness)));
+            }}
+          />
+          <BeamNumberField
+            label="Flange width"
+            value={b.flangeWidth * df}
+            unit={dUnit}
+            min={widthMin}
+            step={dimensionStep}
+            onChange={(v) => {
+              b.setFlangeWidth(b.dimToInternal(v));
+              const maxWebThickness = v - (metric ? 5 : 0.2);
+              if (b.webThickness * df > maxWebThickness) b.setWebThickness(b.dimToInternal(Math.max(metric ? 5 : 0.2, maxWebThickness)));
+            }}
+          />
           <div className="grid grid-cols-2 gap-2">
-            <div><label className="text-xs text-muted-foreground">Flange t: {(b.flangeThickness * df).toFixed(b.isImperial ? 3 : 0)} {dUnit}</label><Slider value={[b.flangeThickness * df]} onValueChange={([v]) => b.setFlangeThickness(b.dimToInternal(v))} min={b.isImperial ? 0.2 : 5} max={b.isImperial ? 2 : 50} step={b.isImperial ? 0.05 : 1} /></div>
-            <div><label className="text-xs text-muted-foreground">Web t: {(b.webThickness * df).toFixed(b.isImperial ? 3 : 0)} {dUnit}</label><Slider value={[b.webThickness * df]} onValueChange={([v]) => b.setWebThickness(b.dimToInternal(v))} min={b.isImperial ? 0.2 : 5} max={b.isImperial ? 1.2 : 30} step={b.isImperial ? 0.05 : 1} /></div>
+            <BeamNumberField label="Flange thickness" value={b.flangeThickness * df} unit={dUnit} min={metric ? 5 : 0.2} max={b.sectionHeight * df / 2 - (metric ? 5 : 0.2)} step={metric ? 1 : 0.05} onChange={(v) => b.setFlangeThickness(b.dimToInternal(v))} />
+            <BeamNumberField label="Web thickness" value={b.webThickness * df} unit={dUnit} min={metric ? 5 : 0.2} max={b.flangeWidth * df - (metric ? 5 : 0.2)} step={metric ? 1 : 0.05} onChange={(v) => b.setWebThickness(b.dimToInternal(v))} />
           </div>
         </>
       )}
 
-      <div><label className="text-xs text-muted-foreground">Yield Strength σ<sub>y</sub>: {(b.yieldStrength * du.yieldFactor).toFixed(b.isImperial ? 1 : 0)} {du.yieldUnit}</label><Slider value={[b.yieldStrength]} onValueChange={([v]) => { b.setYieldStrength(v); if (b.ctx.isSynced) b.ctx.setResistanceMean(v); }} min={200} max={500} step={10} /></div>
+      <BeamNumberField
+        label={<>Yield Strength σ<sub>y</sub></>}
+        value={b.yieldStrength * du.yieldFactor}
+        unit={du.yieldUnit}
+        min={1}
+        step={1}
+        onChange={(displayValue) => {
+          const value = displayValue / du.yieldFactor;
+          b.setYieldStrength(value);
+          if (b.ctx.isSynced) b.ctx.setResistanceMean(value);
+        }}
+      />
 
       <div className="grid grid-cols-2 gap-4">
-        <div><label className="text-xs text-muted-foreground">Strength COV: {(b.strengthCOV * 100).toFixed(0)}%</label><Slider value={[b.strengthCOV]} onValueChange={([v]) => { b.setStrengthCOV(v); if (b.ctx.isSynced) b.ctx.setResistanceCoV(v); }} min={0.05} max={0.2} step={0.01} /></div>
-        <div><label className="text-xs text-muted-foreground">Load COV: {(b.loadCOV * 100).toFixed(0)}%</label><Slider value={[b.loadCOV]} onValueChange={([v]) => { b.setLoadCOV(v); if (b.ctx.isSynced) b.ctx.setLoadVariance(Math.pow(v * b.ctx.loadMean, 2)); }} min={0.1} max={0.4} step={0.02} /></div>
+        <BeamNumberField label="Strength COV" value={b.strengthCOV * 100} unit="%" min={0} step={0.1} onChange={(v) => { const cov = v / 100; b.setStrengthCOV(cov); if (b.ctx.isSynced) b.ctx.setResistanceCoV(cov); }} />
+        <BeamNumberField label="Load COV" value={b.loadCOV * 100} unit="%" min={0} step={0.1} onChange={(v) => { const cov = v / 100; b.setLoadCOV(cov); if (b.ctx.isSynced) b.ctx.setLoadVariance(Math.pow(cov * b.ctx.loadMean, 2)); }} />
       </div>
 
       <div className="mt-4 pt-4 border-t border-border/30">
