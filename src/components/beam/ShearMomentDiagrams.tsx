@@ -27,7 +27,7 @@ export function ShearMomentDiagrams({
   posFactor = 1, shearFactor = 1, momentFactor = 1,
 }: ShearMomentDiagramsProps) {
   const displayData = diagramData.map(d => ({
-    x: +(d.x * posFactor).toFixed(4),
+    x: d.x * posFactor,
     shear: d.shear * shearFactor,
     moment: d.moment * momentFactor,
   }));
@@ -47,7 +47,7 @@ export function ShearMomentDiagrams({
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(217 33% 20%)" />
-              <XAxis dataKey="x" stroke="hsl(215 20% 65%)" fontSize={12}
+              <XAxis type="number" dataKey="x" domain={[0, "dataMax"]} tickFormatter={(value) => Number(value).toFixed(2)} stroke="hsl(215 20% 65%)" fontSize={12}
                 label={{ value: `Position (${lengthUnit})`, position: "bottom", fill: "hsl(215 20% 65%)", fontSize: 10 }} />
               <YAxis stroke="hsl(215 20% 65%)" fontSize={12}
                 label={{ value: `V (${forceUnit})`, angle: -90, position: "insideLeft", fill: "hsl(215 20% 65%)", fontSize: 10 }} />
@@ -55,7 +55,7 @@ export function ShearMomentDiagrams({
                 formatter={(v: number) => [`${v.toFixed(2)} ${forceUnit}`, "V(x)"]}
                 labelFormatter={(l) => `x = ${Number(l).toFixed(2)} ${lengthUnit}`} />
               <ReferenceLine y={0} stroke="hsl(215 20% 65%)" />
-              <Area type="monotone" dataKey="shear" stroke="hsl(262 83% 58%)" strokeWidth={2} fill="url(#shearGrad)" />
+              <Area type="linear" dataKey="shear" stroke="hsl(262 83% 58%)" strokeWidth={2} fill="url(#shearGrad)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -74,7 +74,7 @@ export function ShearMomentDiagrams({
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(217 33% 20%)" />
-              <XAxis dataKey="x" stroke="hsl(215 20% 65%)" fontSize={12}
+              <XAxis type="number" dataKey="x" domain={[0, "dataMax"]} tickFormatter={(value) => Number(value).toFixed(2)} stroke="hsl(215 20% 65%)" fontSize={12}
                 label={{ value: `Position (${lengthUnit})`, position: "bottom", fill: "hsl(215 20% 65%)", fontSize: 10 }} />
               <YAxis stroke="hsl(215 20% 65%)" fontSize={12}
                 label={{ value: `M (${momentUnit})`, angle: -90, position: "insideLeft", fill: "hsl(215 20% 65%)", fontSize: 10 }} />
@@ -82,7 +82,7 @@ export function ShearMomentDiagrams({
                 formatter={(v: number) => [`${v.toFixed(2)} ${momentUnit}`, "M(x)"]}
                 labelFormatter={(l) => `x = ${Number(l).toFixed(2)} ${lengthUnit}`} />
               <ReferenceLine y={0} stroke="hsl(215 20% 65%)" />
-              <Area type="monotone" dataKey="moment" stroke="hsl(45 93% 47%)" strokeWidth={2} fill="url(#momentGrad)" />
+              <Area type="linear" dataKey="moment" stroke="hsl(45 93% 47%)" strokeWidth={2} fill="url(#momentGrad)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>

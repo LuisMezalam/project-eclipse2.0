@@ -362,7 +362,7 @@ export function useBeamAnalysis() {
       solverElasticModulus,
       solverMomentOfInertia,
       supports,
-      { numPoints: 400 },
+      { numPoints: 400, includeEventSamples: true },
       solverSectionModulus,
     );
   }, [beamType, activeLoads, selfWeightLoad, beamLength, sectionProps, solverElasticModulus, solverMomentOfInertia, solverSectionModulus, supports]);

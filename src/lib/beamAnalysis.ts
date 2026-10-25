@@ -206,6 +206,8 @@ export interface BeamSolverOptions {
   numPoints?: number;
   /** Extra positions to include in the returned plot data. */
   extraSamplePositions?: number[];
+  /** Add samples immediately before and after point, support, and load events. */
+  includeEventSamples?: boolean;
   /** Number of finite elements across the beam. */
   elementCount?: number;
 }
@@ -963,7 +965,9 @@ export function solveBeamResponse(
   const supportReactions = [...supportAtNode.entries()].map(([node, type]) => ({
     position: coordinates[node],
     vertical: residual[node * 2],
-    moment: type === 'fixed' ? residual[leftRotation[node]] + residual[rightRotation[node]] : 0,
+    // A fixed support has one shared rotational DOF. Summing left and right
+    // entries doubled its reaction moment because both indices reference it.
+    moment: type === 'fixed' ? residual[leftRotation[node]] : 0,
   }));
 
   const integrateAllDistributed = (from: number, to: number, momentAboutX?: number) =>
@@ -1021,6 +1025,16 @@ export function solveBeamResponse(
 
   const numPoints = Math.max(1, Math.floor(options.numPoints ?? 400));
   const chartXs = Array.from({ length: numPoints + 1 }, (_, index) => (index / numPoints) * L);
+  const epsilon = Math.max(L * 1e-7, 1e-9);
+  const chartEventPositions = options.includeEventSamples ? [
+      ...supportConditions.map((support) => support.position * L),
+      ...pointForces.map((point) => point.position),
+      ...pointMoments.map((point) => point.position),
+      ...distributedLoadBoundaries,
+    ] : [];
+  for (const position of chartEventPositions) {
+    chartXs.push(position - epsilon, position, position + epsilon);
+  }
   for (const extraPosition of options.extraSamplePositions ?? []) {
     if (Number.isFinite(extraPosition) && extraPosition >= 0 && extraPosition <= L) chartXs.push(extraPosition);
   }
@@ -1031,7 +1045,6 @@ export function solveBeamResponse(
   });
 
   const eventPositions = [...coordinates, ...pointForces.map((point) => point.position), ...pointMoments.map((point) => point.position)];
-  const epsilon = Math.max(L * 1e-7, 1e-9);
   const extremaXs = [
     ...Array.from({ length: Math.max(400, numPoints) + 1 }, (_, index) => (index / Math.max(400, numPoints)) * L),
     ...eventPositions,
@@ -1703,7 +1716,7 @@ export function generateDiagramData(
 ): DiagramPoint[] {
   return solveBeamResponse(beamType, [loadConfig], beamLength, elasticModulus, momentOfInertia, supports, {
     numPoints,
-    elementCount: 50,
+    elementCount: 80,
   }).diagramData;
 }
 export function generateHybridDiagramData(

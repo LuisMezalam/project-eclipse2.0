@@ -23,7 +23,7 @@ export function DeflectionCurve({
   // Convert data to display units
   // diagramData: x in meters, deflection in mm
   const displayData = diagramData.map(d => ({
-    x: +(d.x * posFactor).toFixed(4),
+    x: d.x * posFactor,
     deflection: d.deflection * deflectionFactor,
   }));
 
@@ -45,7 +45,7 @@ export function DeflectionCurve({
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(217 33% 20%)" />
-            <XAxis dataKey="x" stroke="hsl(215 20% 65%)" fontSize={12}
+            <XAxis type="number" dataKey="x" domain={[0, "dataMax"]} tickFormatter={(value) => Number(value).toFixed(2)} stroke="hsl(215 20% 65%)" fontSize={12}
               label={{ value: `Position (${lengthUnit})`, position: "bottom", fill: "hsl(215 20% 65%)", fontSize: 10 }} />
             <YAxis stroke="hsl(215 20% 65%)" fontSize={12}
               label={{ value: `δ (${deflectionUnit})`, angle: -90, position: "insideLeft", fill: "hsl(215 20% 65%)", fontSize: 10 }} />
@@ -55,7 +55,7 @@ export function DeflectionCurve({
             <ReferenceLine y={0} stroke="hsl(215 20% 65%)" strokeDasharray="5 5" />
             <ReferenceLine y={serviceLimit} stroke="hsl(0 84% 60%)" strokeDasharray="5 5"
               label={{ value: "L/250 limit", fill: "hsl(0 84% 60%)", fontSize: 10, position: "right" }} />
-            <Line type="monotone" dataKey="deflection" stroke="hsl(160 84% 39%)" strokeWidth={2} dot={false}
+            <Line type="linear" dataKey="deflection" stroke="hsl(160 84% 39%)" strokeWidth={2} dot={false}
               fill="url(#deflectionGrad)" />
           </LineChart>
         </ResponsiveContainer>
