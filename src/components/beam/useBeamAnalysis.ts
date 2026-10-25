@@ -7,9 +7,11 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   reliabilityAnalysis, solveBeamResponse,
   generateInfluenceLineData, generateEnvelopeData,
-  calculateCrossSectionProperties,
+  calculateCrossSectionProperties, calculateCompositeSectionProperties,
+  calculateLaminateBeamProperties,
   type BeamAnalysis, type LoadConfig, type LoadType, type BeamType,
   type CrossSectionType, type CrossSectionDimensions, type CrossSectionProperties,
+  type CompositeSectionProperties, type LaminaMaterialProperties, type LaminateSectionProperties,
 } from "@/lib/reliability";
 import { ReportSection } from "@/lib/exportUtils";
 import { validateBeamAnalysis } from "@/lib/beamValidation";
@@ -78,6 +80,23 @@ export function useBeamAnalysis() {
   const [elasticModulus, setElasticModulus] = useState(200);
   const [includeSelfWeight, setIncludeSelfWeight] = useState(false);
   const [materialUnitWeight, setMaterialUnitWeight] = useState(77000); // N/m³; steel default
+  const [compositeSlabWidth, setCompositeSlabWidth] = useState(0.9);
+  const [compositeSlabThickness, setCompositeSlabThickness] = useState(0.12);
+  const [compositeSlabElasticModulus, setCompositeSlabElasticModulus] = useState(30);
+  const [compositeSlabTensileStrength, setCompositeSlabTensileStrength] = useState(3);
+  const [compositeSlabCompressiveStrength, setCompositeSlabCompressiveStrength] = useState(30);
+  const [compositeSlabUnitWeight, setCompositeSlabUnitWeight] = useState(24000); // N/m³; normal-weight concrete default
+  const [compositeModel, setCompositeModel] = useState<"laminate" | "layered">("laminate");
+  const [laminateLayup, setLaminateLayup] = useState("0, 45, -45, 90, 90, -45, 45, 0");
+  const [laminatePlyThickness, setLaminatePlyThickness] = useState(0.00025);
+  const [laminateUnitWeight, setLaminateUnitWeight] = useState(16000);
+  const [laminateMaterial, setLaminateMaterial] = useState<LaminaMaterialProperties>({
+    E1: 181e9, E2: 10.3e9, G12: 7.17e9, nu12: 0.28,
+    Xt: 1500e6, Xc: 1500e6, Yt: 40e6, Yc: 246e6, S12: 68e6,
+  });
+  const updateLaminateMaterial = useCallback(<K extends keyof LaminaMaterialProperties>(key: K, value: number) => {
+    setLaminateMaterial((current) => ({ ...current, [key]: value }));
+  }, []);
 
   // Sync from shared context
   useEffect(() => {
@@ -131,6 +150,7 @@ export function useBeamAnalysis() {
         area: { factor: 1e4 / 6.4516, unit: "in²" },
         inertia: { factor: 1e8 / 41.6231, unit: "in⁴" },
         sectionMod: { factor: 1e6 / 16.3871, unit: "in³" },
+        rigidity: { factor: 1 / (forceConversions.kip * Math.pow(lengthConversions.ft, 2)), unit: "kip·ft²" },
         radius: { factor: 100 / 2.54, unit: "in" },
         yieldUnit: "ksi",
         yieldFactor: 1 / 6.89476,  // MPa → ksi
@@ -152,6 +172,7 @@ export function useBeamAnalysis() {
       area: { factor: 1e4, unit: "cm²" },
       inertia: { factor: 1e8, unit: "cm⁴" },
       sectionMod: { factor: 1e6, unit: "cm³" },
+      rigidity: { factor: 1e-6, unit: "MN·m²" },
       radius: { factor: 100, unit: "cm" },
       yieldUnit: "MPa",
       yieldFactor: 1,
@@ -209,6 +230,70 @@ export function useBeamAnalysis() {
 
   const sectionProps: CrossSectionProperties = useMemo(() => calculateCrossSectionProperties(crossSectionDims), [crossSectionDims]);
 
+  const baseSectionHeight = crossSectionType === "circular" || crossSectionType === "hollow-circular"
+    ? sectionDiameter
+    : sectionHeight;
+  const parsedLaminateAngles = useMemo(() => {
+    const parts = laminateLayup.split(/[\s,/]+/).filter(Boolean);
+    const angles = parts.map(Number);
+    const valid = parts.length > 0 && parts.length <= 64 && angles.every(Number.isFinite);
+    return { angles: valid ? angles : [0], valid };
+  }, [laminateLayup]);
+  const laminateSection: LaminateSectionProperties | null = useMemo(() => {
+    if (beamType !== "composite" || compositeModel !== "laminate") return null;
+    return calculateLaminateBeamProperties(sectionWidth, parsedLaminateAngles.angles.map((angleDegrees) => ({
+      material: "Lamina material",
+      angleDegrees,
+      thickness: Math.max(laminatePlyThickness, 1e-8),
+      properties: laminateMaterial,
+    })));
+  }, [beamType, compositeModel, sectionWidth, parsedLaminateAngles, laminatePlyThickness, laminateMaterial]);
+  const compositeSection: CompositeSectionProperties | null = useMemo(() => {
+    if (beamType !== "composite" || compositeModel !== "layered") return null;
+    const baseElasticModulus = Math.max(elasticModulus * 1e9, 1);
+    const baseHeight = Math.max(baseSectionHeight, 1e-6);
+    const slabWidth = Math.max(compositeSlabWidth, 1e-6);
+    const slabThickness = Math.max(compositeSlabThickness, 1e-6);
+    const slabArea = slabWidth * slabThickness;
+    return calculateCompositeSectionProperties([
+      {
+        material: "Primary beam",
+        elasticModulus: baseElasticModulus,
+        tensileStrength: Math.max(yieldStrength * 1e6, 1),
+        compressiveStrength: Math.max(yieldStrength * 1e6, 1),
+        area: Math.max(sectionProps.area, 1e-12),
+        centroidY: baseHeight / 2,
+        momentOfInertia: Math.max(sectionProps.momentOfInertia, 1e-18),
+        bottomY: 0,
+        topY: baseHeight,
+      },
+      {
+        material: "Composite slab",
+        elasticModulus: Math.max(compositeSlabElasticModulus * 1e9, 1),
+        tensileStrength: Math.max(compositeSlabTensileStrength * 1e6, 1),
+        compressiveStrength: Math.max(compositeSlabCompressiveStrength * 1e6, 1),
+        area: slabArea,
+        centroidY: baseHeight + slabThickness / 2,
+        momentOfInertia: slabWidth * Math.pow(slabThickness, 3) / 12,
+        bottomY: baseHeight,
+        topY: baseHeight + slabThickness,
+      },
+    ], baseElasticModulus);
+  }, [beamType, compositeModel, elasticModulus, yieldStrength, sectionProps, baseSectionHeight, compositeSlabWidth, compositeSlabThickness, compositeSlabElasticModulus, compositeSlabTensileStrength, compositeSlabCompressiveStrength]);
+
+  const solverElasticModulus = laminateSection?.plies[0]?.properties.E1 ?? elasticModulus * 1e9;
+  const solverFlexuralRigidity = laminateSection?.flexuralRigidity ?? compositeSection?.flexuralRigidity ?? elasticModulus * 1e9 * sectionProps.momentOfInertia;
+  const solverMomentOfInertia = solverFlexuralRigidity / Math.max(solverElasticModulus, 1);
+  const solverSectionModulus = laminateSection?.effectiveSectionModulus ?? compositeSection?.effectiveSectionModulus ?? sectionProps.sectionModulus;
+  const analysisSectionProps = useMemo(() => laminateSection
+    ? calculateCrossSectionProperties({ type: "rectangular", width: laminateSection.width, height: laminateSection.totalThickness })
+    : sectionProps,
+  [laminateSection, sectionProps]);
+  const analysisCrossSectionType: CrossSectionType = laminateSection ? "rectangular" : crossSectionType;
+  const analysisCrossSectionDims: CrossSectionDimensions = laminateSection
+    ? { type: "rectangular", width: laminateSection.width, height: laminateSection.totalThickness }
+    : crossSectionDims;
+
   // ─── Load-specific parameters ──────────────────────────────
   const [concentratedPosition, setConcentratedPosition] = useState(0.5);
   const [triangularPeak, setTriangularPeak] = useState<0 | 1>(0);
@@ -257,7 +342,14 @@ export function useBeamAnalysis() {
       ? effectiveHybridLoads
       : [effectiveLoadConfig]
   ), [loadMode, effectiveHybridLoads, effectiveLoadConfig]);
-  const selfWeightIntensity = includeSelfWeight ? materialUnitWeight * sectionProps.area : 0;
+  const compositeSlabArea = compositeSlabWidth * compositeSlabThickness;
+  const selfWeightIntensity = includeSelfWeight
+    ? (laminateSection
+      ? laminateUnitWeight * laminateSection.area
+      : beamType === "composite"
+      ? materialUnitWeight * sectionProps.area + compositeSlabUnitWeight * compositeSlabArea
+      : materialUnitWeight * sectionProps.area)
+    : 0;
   const selfWeightLoad = useMemo<LoadConfig | null>(() => includeSelfWeight
     ? { type: "udl", intensity: selfWeightIntensity, inverted: false }
     : null, [includeSelfWeight, selfWeightIntensity]);
@@ -267,20 +359,28 @@ export function useBeamAnalysis() {
       beamType,
       selfWeightLoad ? [...activeLoads, selfWeightLoad] : activeLoads,
       beamLength,
-      elasticModulus * 1e9,
-      sectionProps.momentOfInertia,
+      solverElasticModulus,
+      solverMomentOfInertia,
       supports,
       { numPoints: 400 },
-      sectionProps.sectionModulus,
+      solverSectionModulus,
     );
-  }, [beamType, activeLoads, selfWeightLoad, beamLength, sectionProps, elasticModulus, supports]);
+  }, [beamType, activeLoads, selfWeightLoad, beamLength, sectionProps, solverElasticModulus, solverMomentOfInertia, solverSectionModulus, supports]);
   const beamResult: BeamAnalysis = beamSolution.analysis;
   const diagramData = beamSolution.diagramData;
+  const governingMoment = Math.abs(beamResult.maxBendingMoment) >= Math.abs(beamResult.minBendingMoment ?? 0)
+    ? beamResult.maxBendingMoment
+    : (beamResult.minBendingMoment ?? 0);
+  const analysisYieldStrength = laminateSection
+    ? (governingMoment >= 0 ? laminateSection.positiveMomentEquivalentStrength : laminateSection.negativeMomentEquivalentStrength) / 1e6
+    : compositeSection
+    ? (governingMoment >= 0 ? compositeSection.positiveMomentEquivalentStrength : compositeSection.negativeMomentEquivalentStrength) / 1e6
+    : yieldStrength;
 
   const reliability = useMemo(() => {
     const meanStress = Math.abs(beamResult.maxStress) / 1e6;
-    return reliabilityAnalysis(yieldStrength, strengthCOV, meanStress, loadCOV);
-  }, [beamResult.maxStress, yieldStrength, strengthCOV, loadCOV]);
+    return reliabilityAnalysis(analysisYieldStrength, strengthCOV, meanStress, loadCOV);
+  }, [beamResult.maxStress, analysisYieldStrength, strengthCOV, loadCOV]);
 
   useEffect(() => {
     if (!isSynced) {
@@ -291,7 +391,7 @@ export function useBeamAnalysis() {
 
     setActiveStressMean(Math.abs(beamResult.maxStress));
     setActiveStressCoV(loadCOV);
-    setSharedResistanceMean(yieldStrength);
+    setSharedResistanceMean(analysisYieldStrength);
     setSharedResistanceCoV(strengthCOV);
     setSharedBeamLength(beamLength);
   }, [
@@ -303,7 +403,7 @@ export function useBeamAnalysis() {
     setSharedBeamLength,
     beamResult.maxStress,
     loadCOV,
-    yieldStrength,
+    analysisYieldStrength,
     strengthCOV,
     beamLength,
   ]);
@@ -318,11 +418,11 @@ export function useBeamAnalysis() {
     hybridLoads,
     effectiveHybridLoads,
     beamLength,
-    crossSectionType,
-    crossSectionDims,
-    sectionProps,
+    crossSectionType: analysisCrossSectionType,
+    crossSectionDims: analysisCrossSectionDims,
+    sectionProps: analysisSectionProps,
     beamResult,
-    yieldStrength,
+    yieldStrength: analysisYieldStrength,
     strengthCOV,
     loadCOV,
     reliability,
@@ -336,11 +436,11 @@ export function useBeamAnalysis() {
     hybridLoads,
     effectiveHybridLoads,
     beamLength,
-    crossSectionType,
-    crossSectionDims,
-    sectionProps,
+    analysisCrossSectionType,
+    analysisCrossSectionDims,
+    analysisSectionProps,
     beamResult,
-    yieldStrength,
+    analysisYieldStrength,
     strengthCOV,
     loadCOV,
     reliability,
@@ -351,10 +451,10 @@ export function useBeamAnalysis() {
     influenceMeasurePoint,
     beamLength,
     50,
-    elasticModulus * 1e9,
-    sectionProps.momentOfInertia,
+    solverElasticModulus,
+    solverMomentOfInertia,
     supports,
-  ), [beamType, influenceMeasurePoint, beamLength, elasticModulus, sectionProps.momentOfInertia, supports]);
+  ), [beamType, influenceMeasurePoint, beamLength, solverElasticModulus, solverMomentOfInertia, supports]);
 
   const envelopeData = useMemo(() => {
     const movingLoads = activeLoads.filter((load) => load.type === "moving" || load.type === "axle-train");
@@ -365,15 +465,15 @@ export function useBeamAnalysis() {
       beamType,
       intensity,
       beamLength,
-      elasticModulus * 1e9,
-      sectionProps.momentOfInertia,
+      solverElasticModulus,
+      solverMomentOfInertia,
       50,
       20,
       supports,
       baseLoads,
       movingLoads,
     );
-  }, [beamType, activeLoads, selfWeightLoad, effectiveLoadConfig.intensity, beamLength, elasticModulus, sectionProps.momentOfInertia, supports]);
+  }, [beamType, activeLoads, selfWeightLoad, effectiveLoadConfig.intensity, beamLength, solverElasticModulus, solverMomentOfInertia, supports]);
 
   const hasMovingLoad = activeLoads.some((load) => load.type === "moving" || load.type === "axle-train");
 
@@ -417,11 +517,11 @@ export function useBeamAnalysis() {
         beamType,
         [load],
         beamLength,
-        elasticModulus * 1e9,
-        sectionProps.momentOfInertia,
+        solverElasticModulus,
+        solverMomentOfInertia,
         supports,
         { numPoints: 1, extraSamplePositions: [influenceMeasurePoint * beamLength] },
-        sectionProps.sectionModulus,
+        solverSectionModulus,
       );
       const targetX = influenceMeasurePoint * beamLength;
       const point = response.diagramData.reduce((closest, candidate) =>
@@ -444,7 +544,7 @@ export function useBeamAnalysis() {
     }
     if (selfWeightLoad) processLoad(selfWeightLoad, "SW", "hsl(215 20% 65%)");
     return { influenceEffects: { shear: totalShear / 1000, moment: totalMoment / 1000 }, loadContributions: contributions };
-  }, [loadMode, effectiveHybridLoads, effectiveLoadConfig, selfWeightLoad, beamType, beamLength, elasticModulus, sectionProps, supports, influenceMeasurePoint]);
+  }, [loadMode, effectiveHybridLoads, effectiveLoadConfig, selfWeightLoad, beamType, beamLength, solverElasticModulus, solverMomentOfInertia, solverSectionModulus, supports, influenceMeasurePoint]);
 
   // ─── Export ─────────────────────────────────────────────────
   const getBeamReportData = useCallback((): ReportSection[] => {
@@ -452,17 +552,19 @@ export function useBeamAnalysis() {
     const lu = du.length.unit;
     const posConv = du.length.factor;
     const eModUnit = isImperial ? "ksi" : "GPa";
-    const eModValue = isImperial ? (elasticModulus * 1e9) / 6894760 : elasticModulus;
+    const eModValue = laminateSection
+      ? laminateMaterial.E1 * (isImperial ? 1 / 6894760 : 1e-9)
+      : isImperial ? (elasticModulus * 1e9) / 6894760 : elasticModulus;
 
     const sections: ReportSection[] = [
       { title: "Beam Configuration", description: `${getBeamTypeLabel(beamType)} beam analysis`, data: [
         { label: "Beam Type", value: getBeamTypeLabel(beamType), precision: 0 },
         { label: "Beam Length", value: beamLength * posConv, unit: lu, precision: 2 },
         { label: "Loading Mode", value: loadMode === "hybrid" ? "Hybrid (Multiple Loads)" : "Single Load", precision: 0 },
-        { label: "Elastic Modulus", value: eModValue, unit: eModUnit, precision: 1 },
+        { label: laminateSection ? "Fiber-direction modulus E₁" : "Elastic Modulus", value: eModValue, unit: eModUnit, precision: 1 },
         { label: "Beam Self-Weight", value: includeSelfWeight ? "Included" : "Off", precision: 0 },
         ...(includeSelfWeight ? [
-          { label: "Material Unit Weight", value: materialUnitWeight * du.unitWeight.factor, unit: du.unitWeight.unit, precision: 2 },
+          { label: "Material Unit Weight", value: (laminateSection ? laminateUnitWeight : materialUnitWeight) * du.unitWeight.factor, unit: du.unitWeight.unit, precision: 2 },
           { label: "Self-Weight Line Load", value: selfWeightIntensity * du.distForce.factor, unit: du.distForce.unit, precision: 3 },
         ] : []),
       ]},
@@ -503,10 +605,10 @@ export function useBeamAnalysis() {
         { label: "Critical Flags", value: validation.criticalCount, precision: 0 },
         { label: "Warnings", value: validation.warningCount, precision: 0 },
       ]},
-      { title: "Cross Section Properties", description: getCrossSectionLabel(crossSectionType), data: [
-        { label: "Area", value: sectionProps.area * du.area.factor, unit: du.area.unit, precision: 2 },
-        { label: "Moment of Inertia", value: sectionProps.momentOfInertia * du.inertia.factor, unit: du.inertia.unit, precision: 2 },
-        { label: "Section Modulus", value: sectionProps.sectionModulus * du.sectionMod.factor, unit: du.sectionMod.unit, precision: 2 },
+      { title: "Cross Section Properties", description: getCrossSectionLabel(analysisCrossSectionType), data: [
+        { label: "Area", value: analysisSectionProps.area * du.area.factor, unit: du.area.unit, precision: 2 },
+        { label: "Moment of Inertia", value: analysisSectionProps.momentOfInertia * du.inertia.factor, unit: du.inertia.unit, precision: 2 },
+        { label: "Section Modulus", value: analysisSectionProps.sectionModulus * du.sectionMod.factor, unit: du.sectionMod.unit, precision: 2 },
       ]},
       { title: "Analysis Results", description: "Maximum values", data: [
         { label: "Max Shear", value: beamResult.maxShear * du.force.factor, unit: du.force.unit, precision: 3 },
@@ -520,8 +622,49 @@ export function useBeamAnalysis() {
         { label: "Safety Factor", value: reliability.centralSafetyFactor, precision: 3 },
       ]},
     );
+    if (compositeSection) {
+      sections.push({
+        title: "Composite Section Mechanics",
+        description: "Fully bonded linear-elastic transformed section; screening result only",
+        data: [
+          { label: "Effective slab width", value: compositeSlabWidth * posConv, unit: lu, precision: 3 },
+          { label: "Deck thickness", value: compositeSlabThickness * posConv, unit: lu, precision: 3 },
+          { label: "Composite material area", value: compositeSection.area * du.area.factor, unit: du.area.unit, precision: 3 },
+          { label: "Elastic neutral axis from beam bottom", value: compositeSection.elasticNeutralAxis * posConv, unit: lu, precision: 3 },
+          { label: "Modular ratio Edeck/Ebeam", value: compositeSlabElasticModulus / Math.max(elasticModulus, 1e-9), precision: 3 },
+          { label: "Composite flexural rigidity EI", value: compositeSection.flexuralRigidity * du.rigidity.factor, unit: du.rigidity.unit, precision: 3 },
+          { label: "Transformed I (beam material reference)", value: compositeSection.transformedMomentOfInertia * du.inertia.factor, unit: du.inertia.unit, precision: 3 },
+          { label: "Effective section modulus", value: compositeSection.effectiveSectionModulus * du.sectionMod.factor, unit: du.sectionMod.unit, precision: 3 },
+          { label: "Equivalent screening strength", value: analysisYieldStrength * du.yieldFactor, unit: du.yieldUnit, precision: 2 },
+          ...(includeSelfWeight ? [{ label: "Slab material unit weight", value: compositeSlabUnitWeight * du.unitWeight.factor, unit: du.unitWeight.unit, precision: 2 }] : []),
+        ],
+      });
+    }
+    if (laminateSection) {
+      const strengthUtilization = Math.abs(governingMoment) * (governingMoment >= 0
+        ? laminateSection.positiveMomentUtilizationCoefficient
+        : laminateSection.negativeMomentUtilizationCoefficient);
+      sections.push({
+        title: "Laminated Composite Beam Mechanics",
+        description: "Classical Lamination Theory with first-ply maximum-stress screening",
+        data: [
+          { label: "Ply angles, bottom to top", value: laminateSection.plies.map((ply) => `${ply.angleDegrees}°`).join(", "), precision: 0 },
+          { label: "Ply count", value: laminateSection.plies.length, precision: 0 },
+          { label: "Laminate width", value: laminateSection.width * posConv, unit: lu, precision: 3 },
+          { label: "Laminate total thickness", value: laminateSection.totalThickness * posConv, unit: lu, precision: 4 },
+          { label: "A₁₁ extensional stiffness", value: laminateSection.extensionalStiffness[0][0] * (du.force.factor / du.length.factor), unit: `${du.force.unit}/${lu}`, precision: 3 },
+          { label: "B₁₁ extension-bending coupling", value: laminateSection.couplingStiffness[0][0] * du.force.factor, unit: du.force.unit, precision: 3 },
+          { label: "D₁₁ bending stiffness per width", value: laminateSection.bendingStiffness[0][0] * du.moment.factor, unit: du.moment.unit, precision: 3 },
+          { label: "Effective beam EI from full ABD compliance", value: laminateSection.flexuralRigidity * du.rigidity.factor, unit: du.rigidity.unit, precision: 4 },
+          { label: "Effective elastic section modulus", value: laminateSection.effectiveSectionModulus * du.sectionMod.factor, unit: du.sectionMod.unit, precision: 3 },
+          { label: "Governing first-ply utilization", value: strengthUtilization * 100, unit: "%", precision: 2 },
+          { label: "Positive / negative moment resistance", value: `${(laminateSection.positiveMomentResistance * du.moment.factor).toFixed(3)} / ${(laminateSection.negativeMomentResistance * du.moment.factor).toFixed(3)} ${du.moment.unit}`, precision: 0 },
+          ...(includeSelfWeight ? [{ label: "Lamina unit weight", value: laminateUnitWeight * du.unitWeight.factor, unit: du.unitWeight.unit, precision: 2 }] : []),
+        ],
+      });
+    }
     return sections;
-  }, [beamType, beamLength, loadType, loadMode, hybridLoads, loadIntensity, elasticModulus, crossSectionType, sectionProps, beamResult, reliability, validation, displayUnits, isImperial, convertForceToDisplay, getDisplayForceUnit, includeSelfWeight, materialUnitWeight, selfWeightIntensity]);
+  }, [beamType, beamLength, loadType, loadMode, hybridLoads, loadIntensity, elasticModulus, laminateSection, laminateMaterial, analysisCrossSectionType, analysisSectionProps, beamResult, reliability, validation, displayUnits, isImperial, convertForceToDisplay, getDisplayForceUnit, includeSelfWeight, materialUnitWeight, laminateUnitWeight, selfWeightIntensity, compositeSection, compositeSlabWidth, compositeSlabThickness, compositeSlabElasticModulus, compositeSlabUnitWeight, analysisYieldStrength]);
 
   const getBeamCSVData = useCallback(() => diagramData.map(p => ({
     position_m: p.x, shear_kn: p.shear, moment_knm: p.moment, deflection_mm: p.deflection,
@@ -536,6 +679,17 @@ export function useBeamAnalysis() {
     strengthCOV, setStrengthCOV, loadCOV, setLoadCOV,
     elasticModulus, setElasticModulus,
     includeSelfWeight, setIncludeSelfWeight, materialUnitWeight, setMaterialUnitWeight,
+    compositeSlabWidth, setCompositeSlabWidth,
+    compositeSlabThickness, setCompositeSlabThickness,
+    compositeSlabElasticModulus, setCompositeSlabElasticModulus,
+    compositeSlabTensileStrength, setCompositeSlabTensileStrength,
+    compositeSlabCompressiveStrength, setCompositeSlabCompressiveStrength,
+    compositeSlabUnitWeight, setCompositeSlabUnitWeight,
+    compositeModel, setCompositeModel,
+    laminateLayup, setLaminateLayup, laminateLayupValid: parsedLaminateAngles.valid,
+    laminatePlyThickness, setLaminatePlyThickness,
+    laminateUnitWeight, setLaminateUnitWeight,
+    laminateMaterial, updateLaminateMaterial,
     selfWeightIntensity,
     // Units
     unitSystem, setUnitSystem, forceUnit, setForceUnit,
@@ -552,7 +706,11 @@ export function useBeamAnalysis() {
     sectionDiameter, setSectionDiameter, innerDiameter, setInnerDiameter,
     innerWidth, setInnerWidth, innerHeight, setInnerHeight,
     flangeWidth, setFlangeWidth, flangeThickness, setFlangeThickness,
-    webThickness, setWebThickness, sectionProps,
+    webThickness, setWebThickness, sectionProps, analysisSectionProps,
+    analysisCrossSectionType,
+    baseSectionHeight, compositeSection, laminateSection, analysisYieldStrength,
+    solverElasticModulus,
+    solverFlexuralRigidity, solverMomentOfInertia, solverSectionModulus,
     // Load params
     concentratedPosition, setConcentratedPosition,
     triangularPeak, setTriangularPeak,

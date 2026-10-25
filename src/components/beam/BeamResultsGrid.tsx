@@ -19,9 +19,10 @@ interface BeamResultsGridProps {
   yieldStrength: number;
   beamLength: number;
   displayUnits?: DisplayUnits;
+  composite?: boolean;
 }
 
-export function BeamResultsGrid({ beamResult, yieldStrength, beamLength, displayUnits }: BeamResultsGridProps) {
+export function BeamResultsGrid({ beamResult, yieldStrength, beamLength, displayUnits, composite = false }: BeamResultsGridProps) {
   const du: DisplayUnits = displayUnits ?? {
     force: { factor: 1 / 1000, unit: "kN" },
     moment: { factor: 1 / 1000, unit: "kN·m" },
@@ -48,7 +49,7 @@ export function BeamResultsGrid({ beamResult, yieldStrength, beamLength, display
     { label: "Min Moment Mmin", value: `${((beamResult.minBendingMoment ?? 0) * du.moment.factor).toFixed(1)} ${du.moment.unit}` },
     { label: "Max Deflection Dmax", value: `${deflDisplay.toFixed(2)} ${du.deflection.unit}`, alert: deflectionExceedsLimit },
     { label: "Min Deflection Dmin", value: `${minDeflDisplay.toFixed(2)} ${du.deflection.unit}`, alert: deflectionExceedsLimit },
-    { label: "Max Stress σmax", value: `${stressDisplay.toFixed(1)} ${du.stress.unit}`, alert: stressDisplay > yieldDisplay },
+    { label: composite ? "Max Material Stress σmax" : "Max Stress σmax", value: `${stressDisplay.toFixed(1)} ${du.stress.unit}`, alert: stressDisplay > yieldDisplay },
   ];
 
   return (

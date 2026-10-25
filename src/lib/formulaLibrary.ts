@@ -149,6 +149,48 @@ export const formulaLibrary: FormulaDefinition[] = [
     watchpoints: ["Deflection scales with L fourth, making long spans highly sensitive.", "Serviceability can control even when strength reliability looks acceptable."],
   },
   {
+    id: "composite-section-elastic",
+    name: "Bonded Isotropic Layers and Flexural Rigidity",
+    category: "beams",
+    formula: "n_i = E_i/E_ref; ȳ_E = Σ(E_i A_i y_i)/Σ(E_i A_i); (EI)_c = Σ E_i[I_i + A_i(y_i - ȳ_E)²]; I_tr = (EI)_c/E_ref; κ = M/(EI)_c; σ_i(y) = -E_i κ(y - ȳ_E)",
+    latex: "n_i=\\frac{E_i}{E_{ref}},\\quad \\bar{y}_E=\\frac{\\sum_i E_i A_i y_i}{\\sum_i E_i A_i},\\quad (EI)_c=\\sum_i E_i\\left[I_i+A_i(y_i-\\bar{y}_E)^2\\right],\\quad I_{tr}=\\frac{(EI)_c}{E_{ref}},\\quad \\kappa=\\frac{M}{(EI)_c},\\quad \\sigma_i(y)=-E_i\\kappa(y-\\bar{y}_E)",
+    description: "Combines material elastic moduli and layer geometry into one flexural rigidity. The beam solver receives E_ref and I_tr, so its stiffness E_ref I_tr equals the composite (EI)c; constituent stresses follow from the shared curvature.",
+    variables: [
+      { symbol: "E_i", meaning: "Elastic modulus of layer i" },
+      { symbol: "A_i", meaning: "Area of layer i" },
+      { symbol: "y_i", meaning: "Layer centroid elevation from the section datum" },
+      { symbol: "I_i", meaning: "Centroidal second moment of area of layer i" },
+      { symbol: "E_ref", meaning: "Reference modulus used to transform the section for the beam solver" },
+      { symbol: "M, κ", meaning: "Section moment and elastic curvature" },
+      { symbol: "σ_i", meaning: "Normal stress in material layer i" },
+    ],
+    toolTabs: ["static", "advanced"],
+    importance: "specialized",
+    outputs: ["Elastic neutral axis", "Composite EI", "Transformed I", "Layer stresses"],
+    watchpoints: ["Assumes full bond/no interface slip and linear-elastic materials; slab width is the user-supplied effective width.", "Gross uncracked slab stiffness, code effective-width calculation, creep, construction staging, connector design, and code strength checks are outside this model."],
+  },
+  {
+    id: "laminated-composite-beam-clt",
+    name: "Laminated Composite Beam: Classical Lamination Theory",
+    category: "beams",
+    formula: "nu21=nu12*E2/E1; Q11=E1/(1-nu12*nu21); Q22=E2/(1-nu12*nu21); Q12=nu12*E2/(1-nu12*nu21); Q66=G12; Aij=Σ Qbarij*(zk-zk-1); Bij=1/2 Σ Qbarij*(zk²-zk-1²); Dij=1/3 Σ Qbarij*(zk³-zk-1³); {N;M}=[A B;B D]{eps0;kappa}; Mx_CLT=-Mbeam/b; EIeff=b/([ABD]^-1)_(kappax,Mx); eps(k,z)=eps0+z*kappa; sigma(k)=Qbar(k)*eps(k,z); FImax=max(|sigma1|/Xallow, |sigma2|/Yallow, |tau12|/S12)",
+    latex: "\\nu_{21}=\\nu_{12}\\frac{E_2}{E_1},\\quad Q_{11}=\\frac{E_1}{1-\\nu_{12}\\nu_{21}},\\quad Q_{22}=\\frac{E_2}{1-\\nu_{12}\\nu_{21}},\\quad Q_{12}=\\frac{\\nu_{12}E_2}{1-\\nu_{12}\\nu_{21}},\\quad Q_{66}=G_{12}\\;\\;\\bar{\\mathbf Q}^{(k)}=\\mathcal T(\\mathbf Q^{(k)},\\theta_k)\\\\ A_{ij}=\\sum_k\\bar Q_{ij}^{(k)}(z_k-z_{k-1}),\\quad B_{ij}=\\frac12\\sum_k\\bar Q_{ij}^{(k)}(z_k^2-z_{k-1}^2),\\quad D_{ij}=\\frac13\\sum_k\\bar Q_{ij}^{(k)}(z_k^3-z_{k-1}^3)\\\\ \\begin{Bmatrix}\\mathbf N\\\\\\mathbf M\\end{Bmatrix}=\\begin{bmatrix}\\mathbf A&\\mathbf B\\\\\\mathbf B&\\mathbf D\\end{bmatrix}\\begin{Bmatrix}\\boldsymbol\\epsilon_0\\\\\\boldsymbol\\kappa\\end{Bmatrix},\\quad M_x^{CLT}=-\\frac{M_{beam}}{b},\\quad EI_{eff}=\\frac{b}{([ABD]^{-1})_{\\kappa_x,M_x}}\\\\ \\boldsymbol\\epsilon^{(k)}(z)=\\boldsymbol\\epsilon_0+z\\boldsymbol\\kappa,\\quad \\boldsymbol\\sigma^{(k)}=\\bar{\\mathbf Q}^{(k)}\\boldsymbol\\epsilon^{(k)},\\quad FI_{max}^{(k)}=\\max\\left(\\frac{|\\sigma_1|}{X_{allow}},\\frac{|\\sigma_2|}{Y_{allow}},\\frac{|\\tau_{12}|}{S_{12}}\\right)",
+    description: "Uses each ply's orthotropic plane-stress stiffness and angle to form the laminate A, B, and D matrices. With zero membrane resultants and only beam-axis bending applied, the full ABD compliance gives curvature and effective EI for the beam solver. The beam sign convention maps positive sagging moment to negative CLT Mx for z positive upward. Ply surface stresses are checked with a maximum-stress first-ply screen.",
+    variables: [
+      { symbol: "E1, E2, G12, nu12", meaning: "Ply engineering constants in material axes 1-2" },
+      { symbol: "theta_k, z_k", meaning: "Ply angle and through-thickness interface coordinate" },
+      { symbol: "A, B, D", meaning: "Extensional, extension-bending coupling, and bending stiffness matrices" },
+      { symbol: "N, M", meaning: "In-plane force and moment resultants per unit width" },
+      { symbol: "epsilon0, kappa", meaning: "Mid-plane strain and curvature vectors" },
+      { symbol: "b, EI_eff", meaning: "Beam width and effective beam-axis flexural rigidity" },
+      { symbol: "Xt, Xc, Yt, Yc, S12", meaning: "Ply tensile, compressive, transverse, and shear allowables" },
+    ],
+    toolTabs: ["static", "advanced"],
+    importance: "specialized",
+    outputs: ["Laminate A/B/D matrices", "Effective beam EI", "Ply surface stresses", "Maximum-stress first-ply utilization"],
+    watchpoints: ["Assumes linear-elastic plane-stress plies, perfect bonding, and classical laminate kinematics.", "The beam model omits transverse shear deformation, interlaminar failure, environmental effects, and progressive damage; the maximum-stress screen is not a design-code check."],
+  },
+  {
     id: "beam-capability-matrix",
     name: "Beam Capability Matrix",
     category: "beams",
@@ -207,12 +249,13 @@ export const formulaLibrary: FormulaDefinition[] = [
     variables: [
       { symbol: "multi-span", meaning: "Arbitrary support layout represented by the current continuous-beam screening path" },
       { symbol: "foundation / springs", meaning: "Support flexibility families that need dedicated stiffness solvers for final design" },
-      { symbol: "composite / tapered", meaning: "Member stiffness families approximated through equivalent section properties" },
+      { symbol: "composite", meaning: "Fully bonded, uncracked elastic layers transformed into equivalent flexural rigidity" },
+      { symbol: "tapered", meaning: "Non-prismatic geometry is currently represented with constant section stiffness" },
     ],
     toolTabs: ["static", "advanced"],
     importance: "specialized",
     outputs: ["Expanded beam type selector", "Support schematic", "Solver caveat"],
-    watchpoints: ["Screening models are useful for early comparison, not stamped final design.", "Non-prismatic, foundation, and beam-column cases should eventually move to matrix or numerical solvers."],
+    watchpoints: ["Composite stiffness assumes full bond and an uncracked elastic section; connector and code strength checks are separate.", "Non-prismatic, foundation, and beam-column cases still need dedicated matrix or numerical solvers."],
   },
   {
     id: "advanced-static-load-families",
@@ -480,7 +523,7 @@ export const toolDefinitions: Record<ToolTabId, ToolDefinition> = {
     id: "static",
     label: "Static Loads",
     purpose: "Turn beam geometry and loading into structural demand that can feed reliability analysis.",
-    workflow: ["Choose load model", "Calculate moment and deflection", "Identify controlling demand", "Send demand moments to reliability checks"],
+    workflow: ["Set span, section, and material properties", "Choose support layout", "Enter single or hybrid loads", "Transform composite layers into E_ref I_tr when selected", "Read V, M, constituent stress, and deflection", "Review assumptions and solver confidence"],
     decisionOutputs: ["Maximum moment", "Deflection", "Demand sensitivity", "Reliability-ready load effect"],
   },
   truss: {
@@ -536,6 +579,10 @@ export const toolDefinitions: Record<ToolTabId, ToolDefinition> = {
 
 export function getFormulasForTab(tabId: ToolTabId): FormulaDefinition[] {
   return formulaLibrary.filter((formula) => formula.toolTabs.includes(tabId));
+}
+
+export function getFormulaById(id: string): FormulaDefinition | undefined {
+  return formulaLibrary.find((formula) => formula.id === id);
 }
 
 export function getFormulasByCategory(category: FormulaCategory): FormulaDefinition[] {

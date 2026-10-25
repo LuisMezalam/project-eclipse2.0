@@ -7,6 +7,8 @@ import { Support, LengthUnit, getBeamTypeLabel, getLoadTypeLabel, loadColors } f
 
 interface BeamSchematicProps {
   beamType: BeamType;
+  compositeModel?: "laminate" | "layered";
+  laminateLayup?: string;
   loadType: LoadType;
   loadMode?: "single" | "hybrid";
   hybridLoads?: LoadConfig[];
@@ -28,7 +30,7 @@ interface BeamSchematicProps {
 }
 
 export function BeamSchematic({
-  beamType, loadType, loadMode = "single", hybridLoads = [], beamLength, lengthUnit, convertLengthToDisplay,
+  beamType, compositeModel = "layered", laminateLayup = "", loadType, loadMode = "single", hybridLoads = [], beamLength, lengthUnit, convertLengthToDisplay,
   concentratedPosition, movingPosition, momentPosition,
   partialStart, partialEnd, trapStartIntensity, trapEndIntensity,
   triangularPeak, forceAngle, loadIntensity, supports, selfWeightIncluded = false,
@@ -122,7 +124,18 @@ export function BeamSchematic({
         {(beamType === "tapered" || beamType === "beam-column" || beamType === "composite" || beamType === "elastic-foundation" || beamType === "spring-supported" || beamType === "gerber") && (
           <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             {beamType === "tapered" && <polygon points="8,46 92,49 92,56 8,54" fill="hsl(var(--primary))" opacity="0.42" />}
-            {beamType === "composite" && <rect x="8" y="40" width="84" height="4" fill="hsl(var(--chart-2))" opacity="0.75" />}
+            {beamType === "composite" && compositeModel === "laminate" ? <>
+              <rect x="8" y="44" width="84" height="12" rx="1" fill="hsl(var(--primary))" opacity="0.4" />
+              {Array.from({ length: Math.max(0, laminateLayup.split(/[\s,/]+/).filter(Boolean).length - 1) }).map((_, i, rows) => {
+                const y = 44 + (i + 1) * 12 / (rows.length + 1);
+                return <line key={`ply-${i}`} x1="8" y1={y} x2="92" y2={y} stroke="hsl(var(--chart-2))" strokeWidth="0.55" />;
+              })}
+              <text x="50" y="40" textAnchor="middle" fill="hsl(var(--chart-2))" fontSize="4">CLT laminate · {laminateLayup.split(/[\s,/]+/).filter(Boolean).length} plies</text>
+            </> : beamType === "composite" && <>
+              <rect x="26" y="34" width="48" height="9" rx="1" fill="hsl(var(--chart-2))" opacity="0.72" />
+              <line x1="26" y1="43.5" x2="74" y2="43.5" stroke="hsl(var(--chart-2))" strokeWidth="1.2" strokeDasharray="2 1" />
+              <text x="50" y="31" textAnchor="middle" fill="hsl(var(--chart-2))" fontSize="4">composite layer</text>
+            </>}
             {beamType === "beam-column" && (
               <>
                 <path d="M 4 50 H 8 M 4 50 l 3 -3 M 4 50 l 3 3 M 96 50 H 92 M 96 50 l -3 -3 M 96 50 l -3 3" stroke="hsl(var(--chart-3))" strokeWidth="1.8" fill="none" />

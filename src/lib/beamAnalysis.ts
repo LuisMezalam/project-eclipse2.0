@@ -70,6 +70,117 @@ export interface CrossSectionProperties {
   radiusOfGyration: number;
 }
 
+export interface CompositeSectionLayerInput {
+  /** Material label shown in the analysis summary. */
+  material: string;
+  /** Elastic modulus in Pa. */
+  elasticModulus: number;
+  /** Tensile and compressive elastic stress limits in Pa for screening checks. */
+  tensileStrength: number;
+  compressiveStrength: number;
+  /** Layer area in m². */
+  area: number;
+  /** Layer centroid from the bottom of the composite section in m. */
+  centroidY: number;
+  /** Centroidal second moment of area in m⁴. */
+  momentOfInertia: number;
+  /** Layer bottom and top elevations from the section bottom in m. */
+  bottomY: number;
+  topY: number;
+}
+
+export interface CompositeSectionLayerResult extends CompositeSectionLayerInput {
+  /** Absolute stress at the layer top per unit absolute bending moment (1/m³). */
+  topStressCoefficient: number;
+  /** Absolute stress at the layer bottom per unit absolute bending moment (1/m³). */
+  bottomStressCoefficient: number;
+  /** Largest layer-fiber stress coefficient (1/m³). */
+  maxStressCoefficient: number;
+  /** Largest material utilization per unit absolute bending moment (1/(N·m)). */
+  utilizationCoefficient: number;
+  /** Largest material utilization per unit positive (sagging) moment. */
+  positiveMomentUtilizationCoefficient: number;
+  /** Largest material utilization per unit negative (hogging) moment. */
+  negativeMomentUtilizationCoefficient: number;
+}
+
+export interface CompositeSectionProperties {
+  area: number;
+  elasticNeutralAxis: number;
+  totalDepth: number;
+  referenceElasticModulus: number;
+  flexuralRigidity: number;
+  transformedMomentOfInertia: number;
+  effectiveSectionModulus: number;
+  maxStressCoefficient: number;
+  positiveMomentEquivalentStrength: number;
+  negativeMomentEquivalentStrength: number;
+  topMaterial: string;
+  bottomMaterial: string;
+  layers: CompositeSectionLayerResult[];
+}
+
+export interface LaminaMaterialProperties {
+  /** Longitudinal modulus along the fibers, Pa. */
+  E1: number;
+  /** Transverse modulus in the ply plane, Pa. */
+  E2: number;
+  /** In-plane shear modulus, Pa. */
+  G12: number;
+  /** Major Poisson ratio nu12. */
+  nu12: number;
+  /** Longitudinal tensile/compressive allowables, Pa. */
+  Xt: number;
+  Xc: number;
+  /** Transverse tensile/compressive allowables, Pa. */
+  Yt: number;
+  Yc: number;
+  /** In-plane shear allowable, Pa. */
+  S12: number;
+}
+
+export interface LaminatePlyInput {
+  material: string;
+  angleDegrees: number;
+  thickness: number;
+  properties: LaminaMaterialProperties;
+}
+
+export interface LaminatePlyStressCoefficients {
+  sigma1: number;
+  sigma2: number;
+  tau12: number;
+}
+
+export interface LaminatePlyResult extends LaminatePlyInput {
+  zBottom: number;
+  zTop: number;
+  bottomStressPerMoment: LaminatePlyStressCoefficients;
+  topStressPerMoment: LaminatePlyStressCoefficients;
+}
+
+export interface LaminateSectionProperties {
+  width: number;
+  totalThickness: number;
+  area: number;
+  extensionalStiffness: number[][];
+  couplingStiffness: number[][];
+  bendingStiffness: number[][];
+  flexuralRigidity: number;
+  flexuralRigidityPerWidth: number;
+  effectiveSectionModulus: number;
+  maxStressCoefficient: number;
+  positiveMomentUtilizationCoefficient: number;
+  negativeMomentUtilizationCoefficient: number;
+  positiveMomentResistance: number;
+  negativeMomentResistance: number;
+  positiveMomentEquivalentStrength: number;
+  negativeMomentEquivalentStrength: number;
+  unitMomentMidplaneStrain: [number, number, number];
+  unitMomentCurvature: [number, number, number];
+  plies: LaminatePlyResult[];
+}
+
 export interface BeamAnalysis {
   totalLoad: number;
   centroidX: number;
@@ -238,6 +349,285 @@ export function calculateCrossSectionProperties(dims: CrossSectionDimensions): C
     sectionModulus: S,
     radiusOfGyration: r
   };
+}
+
+/**
+ * Calculate an elastic, fully bonded composite section using the E-weighted
+ * neutral axis and the parallel-axis theorem. The returned transformed I is
+ * referenced to `referenceElasticModulus`, so E_ref * I_transformed equals the
+ * composite flexural rigidity used by the beam finite-element solver.
+ *
+ * Tensile/compressive strengths are treated as elastic stress limits for
+ * screening only; this does not represent concrete cracking, plastic
+ * resistance, or a design-code composite-beam strength check.
+ */
+export function calculateCompositeSectionProperties(
+  layers: CompositeSectionLayerInput[],
+  referenceElasticModulus: number,
+): CompositeSectionProperties {
+  if (layers.length === 0 || !Number.isFinite(referenceElasticModulus) || referenceElasticModulus <= 0) {
+    throw new Error("A composite section needs at least one layer and a positive reference elastic modulus.");
+  }
+  for (const layer of layers) {
+    if (
+      !Number.isFinite(layer.elasticModulus) || layer.elasticModulus <= 0 ||
+      !Number.isFinite(layer.tensileStrength) || layer.tensileStrength <= 0 ||
+      !Number.isFinite(layer.compressiveStrength) || layer.compressiveStrength <= 0 ||
+      !Number.isFinite(layer.area) || layer.area <= 0 ||
+      !Number.isFinite(layer.centroidY) ||
+      !Number.isFinite(layer.momentOfInertia) || layer.momentOfInertia < 0 ||
+      !Number.isFinite(layer.bottomY) || !Number.isFinite(layer.topY) || layer.bottomY > layer.topY
+    ) {
+      throw new Error(`Composite layer "${layer.material}" has invalid material or section properties.`);
+    }
+  }
+
+  const elasticArea = layers.reduce((sum, layer) => sum + layer.elasticModulus * layer.area, 0);
+  const elasticNeutralAxis = layers.reduce(
+    (sum, layer) => sum + layer.elasticModulus * layer.area * layer.centroidY,
+    0,
+  ) / elasticArea;
+  const flexuralRigidity = layers.reduce((sum, layer) =>
+    sum + layer.elasticModulus * (
+      layer.momentOfInertia + layer.area * Math.pow(layer.centroidY - elasticNeutralAxis, 2)
+    ), 0);
+  const totalDepth = Math.max(...layers.map((layer) => layer.topY));
+  const minElevation = Math.min(...layers.map((layer) => layer.bottomY));
+  const compositeArea = layers.reduce((sum, layer) => sum + layer.area, 0);
+
+  const layerResults = layers.map((layer): CompositeSectionLayerResult => {
+    const topStressCoefficient = layer.elasticModulus * Math.abs(layer.topY - elasticNeutralAxis) / flexuralRigidity;
+    const bottomStressCoefficient = layer.elasticModulus * Math.abs(layer.bottomY - elasticNeutralAxis) / flexuralRigidity;
+    const maxStressCoefficient = Math.max(topStressCoefficient, bottomStressCoefficient);
+    const limitForFiber = (y: number, momentSign: 1 | -1) => {
+      const isAboveNeutralAxis = y > elasticNeutralAxis;
+      const isCompression = momentSign > 0 ? isAboveNeutralAxis : !isAboveNeutralAxis;
+      return isCompression ? layer.compressiveStrength : layer.tensileStrength;
+    };
+    const positiveMomentUtilizationCoefficient = Math.max(
+      topStressCoefficient / limitForFiber(layer.topY, 1),
+      bottomStressCoefficient / limitForFiber(layer.bottomY, 1),
+    );
+    const negativeMomentUtilizationCoefficient = Math.max(
+      topStressCoefficient / limitForFiber(layer.topY, -1),
+      bottomStressCoefficient / limitForFiber(layer.bottomY, -1),
+    );
+    return {
+      ...layer,
+      topStressCoefficient,
+      bottomStressCoefficient,
+      maxStressCoefficient,
+      utilizationCoefficient: Math.max(positiveMomentUtilizationCoefficient, negativeMomentUtilizationCoefficient),
+      positiveMomentUtilizationCoefficient,
+      negativeMomentUtilizationCoefficient,
+    };
+  });
+  const maxStressCoefficient = Math.max(...layerResults.map((layer) => layer.maxStressCoefficient));
+  const positiveMomentUtilizationCoefficient = Math.max(...layerResults.map((layer) => layer.positiveMomentUtilizationCoefficient));
+  const negativeMomentUtilizationCoefficient = Math.max(...layerResults.map((layer) => layer.negativeMomentUtilizationCoefficient));
+  const topLayer = layerResults.reduce((highest, layer) => layer.topY > highest.topY ? layer : highest);
+  const bottomLayer = layerResults.reduce((lowest, layer) => layer.bottomY < lowest.bottomY ? layer : lowest);
+
+  return {
+    area: compositeArea,
+    elasticNeutralAxis,
+    totalDepth: totalDepth - minElevation,
+    referenceElasticModulus,
+    flexuralRigidity,
+    transformedMomentOfInertia: flexuralRigidity / referenceElasticModulus,
+    effectiveSectionModulus: 1 / maxStressCoefficient,
+    maxStressCoefficient,
+    positiveMomentEquivalentStrength: maxStressCoefficient / positiveMomentUtilizationCoefficient,
+    negativeMomentEquivalentStrength: maxStressCoefficient / negativeMomentUtilizationCoefficient,
+    topMaterial: topLayer.material,
+    bottomMaterial: bottomLayer.material,
+    layers: layerResults,
+  };
+}
+
+/**
+ * Build the Classical Lamination Theory ABD matrices and reduce a laminate
+ * beam to the equivalent EI needed by the existing one-dimensional beam
+ * solver. Ply angles are measured from the beam axis to the material 1-axis;
+ * plies are listed from the bottom surface to the top surface.
+ *
+ * The beam bending case has no membrane resultants and applies only Mx. The
+ * full 6x6 ABD system is solved, so unsymmetric coupling and free transverse
+ * and twisting curvatures affect both EI and each ply's stress state.
+ */
+export function calculateLaminateBeamProperties(
+  width: number,
+  plies: LaminatePlyInput[],
+): LaminateSectionProperties {
+  if (!Number.isFinite(width) || width <= 0 || plies.length === 0) {
+    throw new Error("A laminate beam needs a positive width and at least one ply.");
+  }
+
+  for (const ply of plies) {
+    const p = ply.properties;
+    if (
+      !Number.isFinite(ply.angleDegrees) || !Number.isFinite(ply.thickness) || ply.thickness <= 0 ||
+      ![p.E1, p.E2, p.G12, p.Xt, p.Xc, p.Yt, p.Yc, p.S12].every((value) => Number.isFinite(value) && value > 0) ||
+      !Number.isFinite(p.nu12)
+    ) {
+      throw new Error(`Laminate ply at ${ply.angleDegrees}° has invalid geometry or material properties.`);
+    }
+  }
+
+  const totalThickness = plies.reduce((sum, ply) => sum + ply.thickness, 0);
+  const A = Array.from({ length: 3 }, () => [0, 0, 0]);
+  const B = Array.from({ length: 3 }, () => [0, 0, 0]);
+  const D = Array.from({ length: 3 }, () => [0, 0, 0]);
+  const layerGeometry: { ply: LaminatePlyInput; zBottom: number; zTop: number; qBar: number[][] }[] = [];
+  let zBottom = -totalThickness / 2;
+
+  for (const ply of plies) {
+    const zTop = zBottom + ply.thickness;
+    const qBar = transformedReducedStiffness(ply.properties, ply.angleDegrees);
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        A[i][j] += qBar[i][j] * (zTop - zBottom);
+        B[i][j] += 0.5 * qBar[i][j] * (zTop * zTop - zBottom * zBottom);
+        D[i][j] += (qBar[i][j] / 3) * (zTop ** 3 - zBottom ** 3);
+      }
+    }
+    layerGeometry.push({ ply, zBottom, zTop, qBar });
+    zBottom = zTop;
+  }
+
+  const abd = Array.from({ length: 6 }, (_, i) => Array.from({ length: 6 }, (_, j) => {
+    if (i < 3 && j < 3) return A[i][j];
+    if (i < 3 && j >= 3) return B[i][j - 3];
+    if (i >= 3 && j < 3) return B[i - 3][j];
+    return D[i - 3][j - 3];
+  }));
+
+  // Normalize curvature coordinates by the laminate thickness before solving.
+  // This keeps the extensional and flexural blocks on similar numeric scales.
+  const coordinateScale = [1, 1, 1, 1 / totalThickness, 1 / totalThickness, 1 / totalThickness];
+  const normalizedAbd = abd.map((row, i) => Float64Array.from(
+    row.map((value, j) => value * coordinateScale[i] * coordinateScale[j]),
+  ));
+  // CLT takes z positive from bottom to top and uses Mx = integral(sigma_x*z).
+  // The beam solver calls positive sagging moment top compression, so its M is
+  // mapped to a negative CLT moment resultant.
+  const normalizedLoad = Float64Array.from([0, 0, 0, -1 / (width * totalThickness), 0, 0]);
+  const normalizedResponse = solveDenseSystem(normalizedAbd, normalizedLoad);
+  if (!normalizedResponse) {
+    throw new Error("The laminate ABD matrix is singular. Check the ply material values and stack.");
+  }
+  const response = Float64Array.from(normalizedResponse.map((value, i) => value * coordinateScale[i]));
+  const unitMomentMidplaneStrain: [number, number, number] = [response[0], response[1], response[2]];
+  const unitMomentCurvature: [number, number, number] = [response[3], response[4], response[5]];
+  const curvaturePerMoment = Math.abs(unitMomentCurvature[0]);
+  if (!Number.isFinite(curvaturePerMoment) || curvaturePerMoment <= 0) {
+    throw new Error("The laminate has no finite positive beam-axis bending compliance.");
+  }
+
+  const plyResults: LaminatePlyResult[] = layerGeometry.map(({ ply, zBottom: bottom, zTop: top, qBar }) => {
+    const stressAt = (z: number): LaminatePlyStressCoefficients => {
+      const globalStrain = [
+        unitMomentMidplaneStrain[0] + z * unitMomentCurvature[0],
+        unitMomentMidplaneStrain[1] + z * unitMomentCurvature[1],
+        unitMomentMidplaneStrain[2] + z * unitMomentCurvature[2],
+      ];
+      const globalStress = qBar.map((row) => row.reduce((sum, value, index) => sum + value * globalStrain[index], 0));
+      const theta = ply.angleDegrees * Math.PI / 180;
+      const m = Math.cos(theta);
+      const n = Math.sin(theta);
+      return {
+        sigma1: m * m * globalStress[0] + n * n * globalStress[1] + 2 * m * n * globalStress[2],
+        sigma2: n * n * globalStress[0] + m * m * globalStress[1] - 2 * m * n * globalStress[2],
+        tau12: -m * n * globalStress[0] + m * n * globalStress[1] + (m * m - n * n) * globalStress[2],
+      };
+    };
+    return {
+      ...ply,
+      zBottom: bottom,
+      zTop: top,
+      bottomStressPerMoment: stressAt(bottom),
+      topStressPerMoment: stressAt(top),
+    };
+  });
+
+  const plyStressCoefficients = plyResults.flatMap((ply) => [
+    { stress: ply.bottomStressPerMoment, properties: ply.properties },
+    { stress: ply.topStressPerMoment, properties: ply.properties },
+  ]);
+  const stressCoefficients = plyStressCoefficients.map(({ stress }) => stress);
+  const maxStressCoefficient = Math.max(...stressCoefficients.flatMap((stress) => [
+    Math.abs(stress.sigma1), Math.abs(stress.sigma2), Math.abs(stress.tau12),
+  ]));
+  const utilizationForStress = (stress: LaminatePlyStressCoefficients, properties: LaminaMaterialProperties) => {
+    const { Xt, Xc, Yt, Yc, S12 } = properties;
+    return Math.max(
+      Math.abs(stress.sigma1) / (stress.sigma1 >= 0 ? Xt : Xc),
+      Math.abs(stress.sigma2) / (stress.sigma2 >= 0 ? Yt : Yc),
+      Math.abs(stress.tau12) / S12,
+    );
+  };
+  const positiveMomentUtilizationCoefficient = Math.max(...plyStressCoefficients.map(({ stress, properties }) => utilizationForStress(stress, properties)));
+  const negativeMomentUtilizationCoefficient = Math.max(...plyStressCoefficients.map(({ stress, properties }) => utilizationForStress({
+    sigma1: -stress.sigma1, sigma2: -stress.sigma2, tau12: -stress.tau12,
+  }, properties)));
+  const effectiveSectionModulus = 1 / maxStressCoefficient;
+  const positiveMomentResistance = 1 / positiveMomentUtilizationCoefficient;
+  const negativeMomentResistance = 1 / negativeMomentUtilizationCoefficient;
+  const flexuralRigidity = 1 / curvaturePerMoment;
+
+  return {
+    width,
+    totalThickness,
+    area: width * totalThickness,
+    extensionalStiffness: A,
+    couplingStiffness: B,
+    bendingStiffness: D,
+    flexuralRigidity,
+    flexuralRigidityPerWidth: flexuralRigidity / width,
+    effectiveSectionModulus,
+    maxStressCoefficient,
+    positiveMomentUtilizationCoefficient,
+    negativeMomentUtilizationCoefficient,
+    positiveMomentResistance,
+    negativeMomentResistance,
+    positiveMomentEquivalentStrength: maxStressCoefficient / positiveMomentUtilizationCoefficient,
+    negativeMomentEquivalentStrength: maxStressCoefficient / negativeMomentUtilizationCoefficient,
+    unitMomentMidplaneStrain,
+    unitMomentCurvature,
+    plies: plyResults,
+  };
+}
+
+function transformedReducedStiffness(properties: LaminaMaterialProperties, angleDegrees: number): number[][] {
+  const { E1, E2, G12, nu12 } = properties;
+  const nu21 = nu12 * E2 / E1;
+  const denominator = 1 - nu12 * nu21;
+  if (!Number.isFinite(denominator) || denominator <= 0) {
+    throw new Error("The lamina elastic constants violate plane-stress stability (1 - nu12*nu21 must be positive).");
+  }
+  const Q11 = E1 / denominator;
+  const Q22 = E2 / denominator;
+  const Q12 = nu12 * E2 / denominator;
+  const Q66 = G12;
+  const theta = angleDegrees * Math.PI / 180;
+  const m = Math.cos(theta);
+  const n = Math.sin(theta);
+  const m2 = m * m;
+  const n2 = n * n;
+  const m4 = m2 * m2;
+  const n4 = n2 * n2;
+  const m2n2 = m2 * n2;
+  const q11 = Q11 * m4 + 2 * (Q12 + 2 * Q66) * m2n2 + Q22 * n4;
+  const q22 = Q11 * n4 + 2 * (Q12 + 2 * Q66) * m2n2 + Q22 * m4;
+  const q12 = (Q11 + Q22 - 4 * Q66) * m2n2 + Q12 * (m4 + n4);
+  const q16 = (Q11 - Q12 - 2 * Q66) * m * m2 * n - (Q22 - Q12 - 2 * Q66) * m * n * n2;
+  const q26 = (Q11 - Q12 - 2 * Q66) * m * n * n2 - (Q22 - Q12 - 2 * Q66) * m * m2 * n;
+  const q66 = (Q11 + Q22 - 2 * Q12 - 2 * Q66) * m2n2 + Q66 * (m4 + n4);
+  return [
+    [q11, q12, q16],
+    [q12, q22, q26],
+    [q16, q26, q66],
+  ];
 }
 
 // ============================================================

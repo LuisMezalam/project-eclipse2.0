@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { MomentCalculusLibrary } from "@/components/MomentCalculusLibrary";
 import { LabExperiments } from "@/components/lab/LabExperiments";
+import { getFormulaById } from "@/lib/formulaLibrary";
 
 interface FormulaProps {
   name: string;
@@ -79,6 +80,8 @@ interface MathLibraryProps {
 export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAnswerKey, setShowAnswerKey] = useState(false);
+  const compositeSectionFormula = getFormulaById("composite-section-elastic");
+  const laminateBeamFormula = getFormulaById("laminated-composite-beam-clt");
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -680,6 +683,37 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       usedIn={["Static Loads"]}
                       category="core"
                     />
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value="composite-section">
+                  <AccordionTrigger className="text-sm font-medium">Composite Beam Mechanics</AccordionTrigger>
+                  <AccordionContent className="space-y-4">
+                    {compositeSectionFormula && (
+                      <Formula
+                        name={compositeSectionFormula.name}
+                        formula={compositeSectionFormula.formula}
+                        latex={compositeSectionFormula.latex}
+                        description={compositeSectionFormula.description}
+                        variables={compositeSectionFormula.variables}
+                        usedIn={["Static Beam Analysis", "Composite Section Mechanics"]}
+                        category={compositeSectionFormula.importance}
+                      />
+                    )}
+                    {laminateBeamFormula && (
+                      <Formula
+                        name={laminateBeamFormula.name}
+                        formula={laminateBeamFormula.formula}
+                        latex={laminateBeamFormula.latex}
+                        description={laminateBeamFormula.description}
+                        variables={laminateBeamFormula.variables}
+                        usedIn={["Static Beam Analysis", "Laminate Beam Mechanics"]}
+                        category={laminateBeamFormula.importance}
+                      />
+                    )}
+                    <div className="rounded-lg border border-border/50 bg-muted/20 p-4 text-sm text-muted-foreground">
+                      For laminated beams, the solver builds the ply Q-bar matrices, integrates them into A, B, and D, and solves the full ABD system for the beam-axis curvature under Mx/b. The resulting effective EI drives the beam deflection solution; the solved curvature is then used to recover each ply's local stresses and first-ply maximum-stress utilization. The bonded isotropic-layer model uses the transformed-section equation shown above.
+                    </div>
                   </AccordionContent>
                 </AccordionItem>
 

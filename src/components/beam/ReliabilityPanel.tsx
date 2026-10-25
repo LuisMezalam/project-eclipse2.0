@@ -19,10 +19,11 @@ interface ReliabilityPanelProps {
   loadCOV: number;
   loadInverted: boolean;
   displayUnits: DisplayUnits;
+  composite?: boolean;
 }
 
 export function ReliabilityPanel({
-  reliability, beamResult, yieldStrength, strengthCOV, loadCOV, loadInverted,
+  reliability, beamResult, yieldStrength, strengthCOV, loadCOV, loadInverted, composite = false,
   displayUnits: du,
 }: ReliabilityPanelProps) {
   // Display stress in current unit system
@@ -51,7 +52,7 @@ export function ReliabilityPanel({
 
   return (
     <div className="glass-card p-6">
-      <h3 className="text-lg font-semibold mb-4 text-foreground">Probability of Failure Analysis</h3>
+      <h3 className="text-lg font-semibold mb-4 text-foreground">{composite ? "Composite Section Reliability Screen" : "Probability of Failure Analysis"}</h3>
 
       {/* Main metrics */}
       <div className="grid md:grid-cols-4 gap-4 mb-4">
@@ -115,7 +116,7 @@ export function ReliabilityPanel({
           </div>
           <p className="text-[10px] text-muted-foreground">
             SE propagated via delta method from CoV<sub>R</sub> = {(strengthCOV * 100).toFixed(1)}%, CoV<sub>S</sub> = {(loadCOV * 100).toFixed(1)}% (n=30 assumed).
-            R = {yieldDisplay.toFixed(1)} {su}, S = {stressDisplay.toFixed(2)} {su}
+            {composite ? "Equivalent composite stress limit" : "Yield strength"} R = {yieldDisplay.toFixed(1)} {su}, S = {stressDisplay.toFixed(2)} {su}
           </p>
         </div>
         <div className="p-3 rounded-lg bg-muted/20 border border-border space-y-2">

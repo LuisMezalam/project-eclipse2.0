@@ -14,10 +14,15 @@ import {
   EnvelopeDiagrams, InfluenceLines } from
 "./beam";
 import { BeamCapabilityPanel } from "./beam/BeamCapabilityPanel";
+import { CompositeSectionMechanicsPanel } from "./beam/CompositeSectionMechanicsPanel";
+import { LaminateMechanicsPanel } from "./beam/LaminateMechanicsPanel";
 
 export function StaticBeamAnalysis() {
   const b = useBeamAnalysis();
   const du = b.displayUnits;
+  const governingMoment = Math.abs(b.beamResult.maxBendingMoment) >= Math.abs(b.beamResult.minBendingMoment ?? 0)
+    ? b.beamResult.maxBendingMoment
+    : (b.beamResult.minBendingMoment ?? 0);
 
   return (
     <div className="space-y-6">
@@ -26,7 +31,7 @@ export function StaticBeamAnalysis() {
       <BeamValidationPanel validation={b.validation} supportFallback={b.supportFallback} />
 
       <BeamSchematic
-        beamType={b.beamType} loadType={b.loadType} loadMode={b.loadMode}
+        beamType={b.beamType} compositeModel={b.compositeModel} laminateLayup={b.laminateLayup} loadType={b.loadType} loadMode={b.loadMode}
         hybridLoads={b.hybridLoads}
         beamLength={b.beamLength} lengthUnit={b.lengthUnit}
         convertLengthToDisplay={b.convertLengthToDisplay}
@@ -39,20 +44,44 @@ export function StaticBeamAnalysis() {
       
 
       <CrossSectionPropertiesDisplay
-        crossSectionType={b.crossSectionType}
-        sectionProps={b.sectionProps}
+        crossSectionType={b.analysisCrossSectionType}
+        sectionProps={b.analysisSectionProps}
         displayUnits={du}
+        composite={Boolean(b.compositeSection)}
+        laminate={Boolean(b.laminateSection)}
       />
+
+      {b.laminateSection && (
+        <LaminateMechanicsPanel
+          section={b.laminateSection}
+          governingMoment={governingMoment}
+          displayUnits={du}
+        />
+      )}
+
+      {b.compositeSection && (
+        <CompositeSectionMechanicsPanel
+          section={b.compositeSection}
+          slabWidth={b.compositeSlabWidth}
+          slabThickness={b.compositeSlabThickness}
+          beamElasticModulus={b.elasticModulus}
+          slabElasticModulus={b.compositeSlabElasticModulus}
+          governingMoment={governingMoment}
+          displayUnits={du}
+        />
+      )}
 
       <BeamResultsGrid
         beamResult={b.beamResult}
-        yieldStrength={b.yieldStrength}
+        yieldStrength={b.analysisYieldStrength}
         beamLength={b.beamLength}
         displayUnits={du}
+        composite={Boolean(b.compositeSection || b.laminateSection)}
       />
 
       <ReliabilityPanel reliability={b.reliability} beamResult={b.beamResult}
-      yieldStrength={b.yieldStrength} strengthCOV={b.strengthCOV} loadCOV={b.loadCOV} loadInverted={b.loadInverted}
+      yieldStrength={b.analysisYieldStrength} strengthCOV={b.strengthCOV} loadCOV={b.loadCOV} loadInverted={b.loadInverted}
+      composite={Boolean(b.compositeSection || b.laminateSection)}
       displayUnits={du} />
 
       <ShearMomentDiagrams

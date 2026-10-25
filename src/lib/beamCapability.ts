@@ -127,7 +127,7 @@ export const beamCapabilityMatrix: BeamCapabilityRow[] = [
   approximateBeamRow("settlement", beamTypeLabels.settlement, "Support settlement uses an equivalent load instead of imposed displacement."),
   approximateBeamRow("tapered", beamTypeLabels.tapered, "Section stiffness is assumed constant along the span."),
   approximateBeamRow("beam-column", beamTypeLabels["beam-column"], "Geometric P–Δ and axial interaction are not included."),
-  approximateBeamRow("composite", beamTypeLabels.composite, "Composite action is represented by the selected section properties."),
+  approximateBeamRow("composite", beamTypeLabels.composite, "The laminate model derives EI from the full CLT ABD compliance and screens first-ply maximum stress; transverse shear, interlaminar failure, progressive damage, and code checks are not modeled. A bonded isotropic-layer option is also available."),
 ];
 export const loadCombinationPresets: LoadCombinationPreset[] = [
   {

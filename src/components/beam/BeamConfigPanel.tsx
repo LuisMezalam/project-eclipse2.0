@@ -5,6 +5,7 @@
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Play, Pause, RotateCcw, Layers, Settings2, ArrowDownUp } from "lucide-react";
 import { BeamNumberField } from "./BeamNumberField";
 import { CrossSectionDiagram } from "../CrossSectionDiagram";
@@ -156,7 +157,21 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
 
         {/* Right column: cross-section */}
         <div className="space-y-4">
-          <CrossSectionControls b={b} />
+          {b.beamType === "composite" && (
+            <div>
+              <label className="text-sm text-muted-foreground mb-2 block">Composite model</label>
+              <Select value={b.compositeModel} onValueChange={(value) => b.setCompositeModel(value as "laminate" | "layered")}>
+                <SelectTrigger className="bg-muted/30 border-border"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="laminate">Fiber laminate (Classical Lamination Theory)</SelectItem>
+                  <SelectItem value="layered">Bonded isotropic layers (steel + slab)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {b.beamType !== "composite" ? <CrossSectionControls b={b} /> : b.compositeModel === "laminate"
+            ? <LaminateSectionControls b={b} />
+            : <><CrossSectionControls b={b} /><CompositeSectionControls b={b} /></>}
           <div className="space-y-3 rounded-lg border border-border/50 bg-muted/10 p-3">
             <label className="flex items-center gap-2 text-sm text-foreground">
               <input
@@ -168,20 +183,27 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
               Include beam self-weight
             </label>
             <BeamNumberField
-              label="Material unit weight γ"
-              value={b.materialUnitWeight * b.displayUnits.unitWeight.factor}
+              label={b.beamType === "composite" && b.compositeModel === "laminate" ? "Lamina unit weight γ" : b.beamType === "composite" ? "Primary material unit weight γ₁" : "Material unit weight γ"}
+              value={(b.beamType === "composite" && b.compositeModel === "laminate" ? b.laminateUnitWeight : b.materialUnitWeight) * b.displayUnits.unitWeight.factor}
               unit={b.displayUnits.unitWeight.unit}
               min={0}
               step={0.1}
               precision={2}
-              onChange={(value) => b.setMaterialUnitWeight(value / b.displayUnits.unitWeight.factor)}
+              onChange={(value) => {
+                if (b.beamType === "composite" && b.compositeModel === "laminate") b.setLaminateUnitWeight(value / b.displayUnits.unitWeight.factor);
+                else b.setMaterialUnitWeight(value / b.displayUnits.unitWeight.factor);
+              }}
             />
             <p className="text-xs text-muted-foreground">
               {b.includeSelfWeight
                 ? `Adds ${(
                     b.selfWeightIntensity * b.displayUnits.distForce.factor
                   ).toFixed(3)} ${b.displayUnits.distForce.unit} downward as a full-span load. It is included in the response diagrams.`
-                : `Steel default: ${(77000 * b.displayUnits.unitWeight.factor).toFixed(2)} ${b.displayUnits.unitWeight.unit}. Set γ for your material; enabled self-weight uses γ × section area as a full-span dead load.`}
+                : b.beamType === "composite" && b.compositeModel === "laminate"
+                  ? `Enabled self-weight uses γ × laminate width × total ply thickness (${(b.selfWeightIntensity * b.displayUnits.distForce.factor).toFixed(3)} ${b.displayUnits.distForce.unit}).`
+                  : b.beamType === "composite"
+                  ? `For composite sections, self-weight uses γ₁Abeam + γ₂Aslab. Set each material unit weight to match your project.`
+                  : `Steel default: ${(77000 * b.displayUnits.unitWeight.factor).toFixed(2)} ${b.displayUnits.unitWeight.unit}. Set γ for your material; enabled self-weight uses γ × section area as a full-span dead load.`}
             </p>
           </div>
         </div>
@@ -472,6 +494,123 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
   );
 }
 
+function LaminateSectionControls({ b }: { b: BeamHook }) {
+  const metric = !b.isImperial;
+  const modulusFactor = b.isImperial ? 1 / 6894760 : 1e-9;
+  const modulusUnit = b.isImperial ? "ksi" : "GPa";
+  const material = b.laminateMaterial;
+  const modulusField = (label: string, key: "E1" | "E2" | "G12") => (
+    <BeamNumberField
+      label={label}
+      value={material[key] * modulusFactor}
+      unit={modulusUnit}
+      min={0.001}
+      step={0.1}
+      precision={2}
+      onChange={(value) => b.updateLaminateMaterial(key, value / modulusFactor)}
+    />
+  );
+  const strengthField = (label: string, key: "Xt" | "Xc" | "Yt" | "Yc" | "S12") => (
+    <BeamNumberField
+      label={label}
+      value={material[key] * b.displayUnits.stress.factor}
+      unit={b.displayUnits.stress.unit}
+      min={0.001}
+      step={0.1}
+      precision={1}
+      onChange={(value) => b.updateLaminateMaterial(key, value / b.displayUnits.stress.factor)}
+    />
+  );
+
+  return (
+    <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+      <div>
+        <h4 className="text-sm font-semibold text-foreground">Laminated composite section</h4>
+        <p className="mt-1 text-xs text-muted-foreground">Ply angles are measured from the beam axis and listed bottom to top. The same orthotropic lamina properties apply to every ply.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <BeamNumberField label="Laminate width b" value={b.sectionWidth * b.dimFactor} unit={b.dimUnit} min={metric ? 10 : 0.4} step={metric ? 1 : 0.05} onChange={(value) => b.setSectionWidth(b.dimToInternal(value))} />
+        <BeamNumberField label="Ply thickness tₖ" value={b.laminatePlyThickness * b.dimFactor} unit={b.dimUnit} min={metric ? 0.01 : 0.0004} step={metric ? 0.01 : 0.0004} precision={4} onChange={(value) => b.setLaminatePlyThickness(b.dimToInternal(value))} />
+      </div>
+      <label className="block space-y-1">
+        <span className="text-xs text-muted-foreground">Ply angle sequence, bottom to top (degrees)</span>
+        <Input
+          value={b.laminateLayup}
+          aria-label="Ply angle sequence, bottom to top"
+          placeholder="0, 45, -45, 90, 90, -45, 45, 0"
+          onChange={(event) => b.setLaminateLayup(event.currentTarget.value)}
+          className="bg-muted/30 border-border font-mono"
+        />
+        {!b.laminateLayupValid && <span className="text-xs text-destructive">Enter 1 to 64 numeric ply angles, separated by commas or spaces.</span>}
+      </label>
+      <div className="border-t border-border/50 pt-3">
+        <h5 className="mb-2 text-xs font-semibold text-foreground">Lamina elastic constants</h5>
+        <div className="grid grid-cols-2 gap-3">
+          {modulusField("Fiber-direction modulus E₁", "E1")}
+          {modulusField("Transverse modulus E₂", "E2")}
+          {modulusField("In-plane shear modulus G₁₂", "G12")}
+          <BeamNumberField label="Major Poisson ratio ν₁₂" value={material.nu12} min={-0.49} max={0.49} step={0.01} precision={3} onChange={(value) => b.updateLaminateMaterial("nu12", value)} />
+        </div>
+      </div>
+      <div className="border-t border-border/50 pt-3">
+        <h5 className="mb-2 text-xs font-semibold text-foreground">Maximum-stress allowables</h5>
+        <div className="grid grid-cols-2 gap-3">
+          {strengthField("Fiber tension Xₜ", "Xt")}
+          {strengthField("Fiber compression X꜀", "Xc")}
+          {strengthField("Transverse tension Yₜ", "Yt")}
+          {strengthField("Transverse compression Y꜀", "Yc")}
+          {strengthField("In-plane shear S₁₂", "S12")}
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground">Defaults are editable T300/N5208 example values from the supplied composite reference. Replace them with your material data. The model assumes plane-stress, linear-elastic plies, perfect bonding, and no transverse shear; strength results are a first-ply maximum-stress screen.</p>
+    </div>
+  );
+}
+
+function CompositeSectionControls({ b }: { b: BeamHook }) {
+  const metric = !b.isImperial;
+  const modulusFactor = b.isImperial ? 145.0377 : 1; // GPa to ksi
+  const modulusUnit = b.isImperial ? "ksi" : "GPa";
+  const dUnit = b.dimUnit;
+  const dimensionStep = metric ? 1 : 0.05;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+      <div>
+        <h4 className="text-sm font-semibold text-foreground">Composite slab / layer</h4>
+        <p className="mt-1 text-xs text-muted-foreground">A centered rectangular layer sits on top of the selected beam section. Enter the effective slab width for your case; the app does not derive code effective width. Defaults are typical steel and concrete elastic values.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <BeamNumberField label="Effective slab width bₑff" value={b.compositeSlabWidth * b.dimFactor} unit={dUnit} min={metric ? 100 : 4} step={dimensionStep} onChange={(value) => b.setCompositeSlabWidth(b.dimToInternal(value))} />
+        <BeamNumberField label="Slab thickness tₛ" value={b.compositeSlabThickness * b.dimFactor} unit={dUnit} min={metric ? 20 : 0.75} step={dimensionStep} onChange={(value) => b.setCompositeSlabThickness(b.dimToInternal(value))} />
+      </div>
+      <BeamNumberField
+        label="Slab elastic modulus Eₛ"
+        value={b.compositeSlabElasticModulus * modulusFactor}
+        unit={modulusUnit}
+        min={1}
+        step={0.1}
+        precision={2}
+        onChange={(value) => b.setCompositeSlabElasticModulus(value / modulusFactor)}
+      />
+      <div className="grid grid-cols-2 gap-3">
+        <BeamNumberField label="Slab compression limit" value={b.compositeSlabCompressiveStrength * b.displayUnits.yieldFactor} unit={b.displayUnits.yieldUnit} min={0.1} step={0.1} onChange={(value) => b.setCompositeSlabCompressiveStrength(value / b.displayUnits.yieldFactor)} />
+        <BeamNumberField label="Slab tension limit" value={b.compositeSlabTensileStrength * b.displayUnits.yieldFactor} unit={b.displayUnits.yieldUnit} min={0.1} step={0.1} onChange={(value) => b.setCompositeSlabTensileStrength(value / b.displayUnits.yieldFactor)} />
+      </div>
+      <BeamNumberField
+        label="Slab material unit weight γ₂"
+        value={b.compositeSlabUnitWeight * b.displayUnits.unitWeight.factor}
+        unit={b.displayUnits.unitWeight.unit}
+        min={0}
+        step={0.1}
+        precision={2}
+        onChange={(value) => b.setCompositeSlabUnitWeight(value / b.displayUnits.unitWeight.factor)}
+      />
+      <p className="text-[11px] text-muted-foreground">Strength limits are used for an elastic utilization screen. Concrete cracking, shear connectors, slip, effective slab width, creep, and code strength design are not modeled.</p>
+    </div>
+  );
+}
+
 /** Cross-section type selector, dimension inputs, and material properties */
 function CrossSectionControls({ b }: { b: BeamHook }) {
   const du = b.displayUnits;
@@ -595,7 +734,17 @@ function CrossSectionControls({ b }: { b: BeamHook }) {
       )}
 
       <BeamNumberField
-        label={<>Yield Strength σ<sub>y</sub></>}
+        label={b.beamType === "composite" ? "Primary beam elastic modulus E₁" : "Elastic modulus E"}
+        value={b.elasticModulus * (b.isImperial ? 145.0377 : 1)}
+        unit={b.isImperial ? "ksi" : "GPa"}
+        min={1}
+        step={0.1}
+        precision={2}
+        onChange={(value) => b.setElasticModulus(value / (b.isImperial ? 145.0377 : 1))}
+      />
+
+      <BeamNumberField
+        label={b.beamType === "composite" ? <>Primary beam strength limit σ<sub>y,1</sub></> : <>Yield Strength σ<sub>y</sub></>}
         value={b.yieldStrength * du.yieldFactor}
         unit={du.yieldUnit}
         min={1}

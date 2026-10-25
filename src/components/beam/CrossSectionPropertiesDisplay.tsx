@@ -16,9 +16,11 @@ interface Props {
   crossSectionType: CrossSectionType;
   sectionProps: CrossSectionProperties;
   displayUnits?: DisplayUnits;
+  composite?: boolean;
+  laminate?: boolean;
 }
 
-export function CrossSectionPropertiesDisplay({ crossSectionType, sectionProps, displayUnits }: Props) {
+export function CrossSectionPropertiesDisplay({ crossSectionType, sectionProps, displayUnits, composite = false, laminate = false }: Props) {
   const du = displayUnits ?? {
     area: { factor: 1e4, unit: "cm²" },
     inertia: { factor: 1e8, unit: "cm⁴" },
@@ -29,7 +31,7 @@ export function CrossSectionPropertiesDisplay({ crossSectionType, sectionProps, 
   return (
     <div className="glass-card p-6">
       <h3 className="text-lg font-semibold mb-4 text-foreground">
-        Cross-Section Properties - {getCrossSectionLabel(crossSectionType)}
+        {laminate ? "Laminate Gross Section Properties" : composite ? "Primary Beam Section Properties" : "Cross-Section Properties"} - {getCrossSectionLabel(crossSectionType)}
       </h3>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="p-3 rounded-lg bg-muted/30">
