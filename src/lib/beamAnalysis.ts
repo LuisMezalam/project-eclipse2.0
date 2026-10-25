@@ -812,7 +812,10 @@ export function solveBeamResponse(
 ): BeamSolverResponse {
   const L = Math.max(beamLength, 1e-6);
   const E = Math.max(elasticModulus, 1e-6);
-  const I = Math.max(momentOfInertia, 1e-12);
+  // Preserve thin laminate section stiffness. A 1e-12 m⁴ floor overwhelms
+  // valid small composite sections (for example, a 10 mm wide 20 μm ply has
+  // I ≈ 7e-18 m⁴) and makes the beam appear hundreds of times too stiff.
+  const I = Math.max(momentOfInertia, 1e-30);
   const meshCount = Math.max(12, Math.min(160, Math.floor(options.elementCount ?? 80)));
   const supportFallback = supports !== undefined && !hasStableSupportLayout(supports);
   const supportConditions = normalizedBeamSupports(beamType, supports, L);
@@ -834,8 +837,11 @@ export function solveBeamResponse(
     ...supportConditions.map((support) => support.position * L),
     ...pointForces.map((load) => load.position),
     ...pointMoments.map((load) => load.position),
-    ...distributedLoads.flatMap((load) => distributedLoadBounds(load, L)),
   ];
+  const distributedLoadBoundaries = distributedLoads
+    .flatMap((load) => distributedLoadBounds(load, L))
+    .filter(Number.isFinite)
+    .map((x) => Math.min(L, Math.max(0, x)));
   const tolerance = L * 1e-10;
   const coordinates = [...Array.from({ length: meshCount + 1 }, (_, index) => (index / meshCount) * L), 0, L, ...events]
     .map((x) => Math.min(L, Math.max(0, x)))
@@ -888,18 +894,27 @@ export function solveBeamResponse(
       for (let column = 0; column < 4; column++) stiffness[dofs[row]][dofs[column]] += scale * localK[row][column];
     }
 
-    const midpoint = (x1 + x2) / 2;
-    const halfLength = length / 2;
-    for (let gauss = 0; gauss < gaussNodes.length; gauss++) {
-      const xi = (gaussNodes[gauss] + 1) / 2;
-      const x = midpoint + halfLength * gaussNodes[gauss];
-      const qUp = -distributedLoads.reduce((sum, load) => sum + distributedIntensityAt(load, x, L), 0);
-      const n1 = 1 - 3 * xi * xi + 2 * xi * xi * xi;
-      const n2 = length * (xi - 2 * xi * xi + xi * xi * xi);
-      const n3 = 3 * xi * xi - 2 * xi * xi * xi;
-      const n4 = length * (-xi * xi + xi * xi * xi);
-      const shapes = [n1, n2, n3, n4];
-      for (let row = 0; row < 4; row++) force[dofs[row]] += qUp * shapes[row] * gaussWeights[gauss] * halfLength;
+    const integrationBounds = [
+      x1,
+      ...distributedLoadBoundaries.filter((boundary) => boundary > x1 && boundary < x2),
+      x2,
+    ];
+    for (let segment = 0; segment < integrationBounds.length - 1; segment++) {
+      const segmentStart = integrationBounds[segment];
+      const segmentEnd = integrationBounds[segment + 1];
+      const midpoint = (segmentStart + segmentEnd) / 2;
+      const halfLength = (segmentEnd - segmentStart) / 2;
+      for (let gauss = 0; gauss < gaussNodes.length; gauss++) {
+        const x = midpoint + halfLength * gaussNodes[gauss];
+        const xi = (x - x1) / length;
+        const qUp = -distributedLoads.reduce((sum, load) => sum + distributedIntensityAt(load, x, L), 0);
+        const n1 = 1 - 3 * xi * xi + 2 * xi * xi * xi;
+        const n2 = length * (xi - 2 * xi * xi + xi * xi * xi);
+        const n3 = 3 * xi * xi - 2 * xi * xi * xi;
+        const n4 = length * (-xi * xi + xi * xi * xi);
+        const shapes = [n1, n2, n3, n4];
+        for (let row = 0; row < 4; row++) force[dofs[row]] += qUp * shapes[row] * gaussWeights[gauss] * halfLength;
+      }
     }
   }
 
