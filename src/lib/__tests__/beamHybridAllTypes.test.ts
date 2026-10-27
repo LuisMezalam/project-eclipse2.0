@@ -44,7 +44,7 @@ describe("hybrid V/M/D diagram audit across beam types", () => {
     for (const beamType of beamTypes) {
       const E = beamType === "composite" ? material.E1 : 200e9;
       const I = beamType === "composite" ? laminate.flexuralRigidity / E : 1e-5;
-      const options = { numPoints: 400, elementCount: 80, includeEventSamples: true };
+      const options = { numPoints: 400, elementCount: 80, includeEventSamples: true, includeExtremaSamples: true };
       const hybrid = solveBeamResponse(beamType, loads, L, E, I, undefined, options);
       const singles = loads.map((load) => solveBeamResponse(beamType, [load], L, E, I, undefined, {
         ...options,
@@ -86,7 +86,7 @@ describe("hybrid V/M/D diagram audit across beam types", () => {
       [{ position: 0.1, type: "pin" }, { position: 0.52, type: "hinge" }, { position: 0.9, type: "roller" }],
       [{ position: 0.12, type: "fixed" }, { position: 0.88, type: "fixed" }],
     ];
-    const options = { numPoints: 400, elementCount: 80, includeEventSamples: true };
+    const options = { numPoints: 400, elementCount: 80, includeEventSamples: true, includeExtremaSamples: true };
 
     for (const [index, supports] of supportLayouts.entries()) {
       const response = solveBeamResponse("composite", loads, L, material.E1, laminate.flexuralRigidity / material.E1, supports, options);
@@ -120,7 +120,7 @@ describe("hybrid V/M/D diagram audit across beam types", () => {
         beamType === "composite" ? material.E1 : 200e9,
         beamType === "composite" ? laminate.flexuralRigidity / material.E1 : 1e-5,
         supports,
-        { numPoints: 400, elementCount: 80, includeEventSamples: true },
+        { numPoints: 400, elementCount: 80, includeEventSamples: true, includeExtremaSamples: true },
       );
       const fixedReactions = response.supportReactions.filter((reaction) =>
         supports.some((support) => support.type === "fixed" && Math.abs(support.position * L - reaction.position) < 1e-8),

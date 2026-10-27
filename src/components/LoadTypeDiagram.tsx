@@ -171,7 +171,7 @@ export function LoadTypeDiagram({ loadType, beamType, hybridLoads, beamLength = 
       case 'concentrated':
       case 'torsional':
       case 'harmonic-equivalent': {
-        const concX = beamStart + (load.position || 0.5) * beamLen;
+        const concX = beamStart + (load.position ?? 0.5) * beamLen;
         const lineEndY = inv ? beamY + 40 : 10 + yOffset;
         const lineStartY = inv ? beamY + 6 : beamY - 6;
         return (
@@ -252,8 +252,8 @@ export function LoadTypeDiagram({ loadType, beamType, hybridLoads, beamLength = 
 
       case 'partial-udl':
       case 'patch': {
-        const partStart = beamStart + (load.startPosition || 0.25) * beamLen;
-        const partEnd = beamStart + (load.endPosition || 0.75) * beamLen;
+        const partStart = beamStart + (load.startPosition ?? 0.25) * beamLen;
+        const partEnd = beamStart + (load.endPosition ?? 0.75) * beamLen;
         if (inv) {
           const bottomY = beamY + 40;
           return (
@@ -378,7 +378,7 @@ export function LoadTypeDiagram({ loadType, beamType, hybridLoads, beamLength = 
       case 'moment':
       case 'support-settlement':
       case 'thermal-gradient': {
-        const momentX = beamStart + (load.position || 0.5) * beamLen;
+        const momentX = beamStart + (load.position ?? 0.5) * beamLen;
         const mY = inv ? beamY + 20 : beamY - 20;
         return (
           <g key={`load-${colorIndex}`}>
@@ -405,7 +405,7 @@ export function LoadTypeDiagram({ loadType, beamType, hybridLoads, beamLength = 
 
       case 'moving':
       case 'axle-train': {
-        const movingX = beamStart + (load.movingStep || 0.5) * beamLen;
+        const movingX = beamStart + (load.movingStep ?? 0.5) * beamLen;
         if (inv) {
           return (
             <g key={`load-${colorIndex}`}>
@@ -429,7 +429,7 @@ export function LoadTypeDiagram({ loadType, beamType, hybridLoads, beamLength = 
       }
 
       case 'parametric': {
-        const slope = load.slope || 1000;
+        const slope = load.slope ?? 1000;
         const intercept = load.intercept || 2000;
         const maxVal = Math.max(Math.abs(intercept), Math.abs(slope * beamLength + intercept));
         const paramPoints = Array.from({ length: 20 }).map((_, i) => {

@@ -110,15 +110,22 @@ export function useBeamAnalysis() {
   }, [ctx.isSynced, ctx.beamLength, ctx.loadMean, ctx.loadCoV, ctx.resistanceMean, ctx.resistanceCoV]);
 
   // ─── Units ──────────────────────────────────────────────────
-  const [unitSystem, setUnitSystem] = useState<UnitSystem>("metric");
+  const [unitSystem, setUnitSystemState] = useState<UnitSystem>("metric");
   const [forceUnit, setForceUnit] = useState<ForceUnit>("kN");
   const [distributedForceUnit, setDistributedForceUnit] = useState<DistributedForceUnit>("kN/m");
   const [lengthUnit, setLengthUnit] = useState<LengthUnit>("m");
-
-  useEffect(() => {
-    if (unitSystem === "metric") { setForceUnit("kN"); setDistributedForceUnit("kN/m"); setLengthUnit("m"); }
-    else { setForceUnit("kip"); setDistributedForceUnit("kip/ft"); setLengthUnit("ft"); }
-  }, [unitSystem]);
+  const setUnitSystem = useCallback((system: UnitSystem) => {
+    setUnitSystemState(system);
+    if (system === "metric") {
+      setForceUnit("kN");
+      setDistributedForceUnit("kN/m");
+      setLengthUnit("m");
+    } else {
+      setForceUnit("kip");
+      setDistributedForceUnit("kip/ft");
+      setLengthUnit("ft");
+    }
+  }, []);
 
   const convertForceToDisplay = useCallback((valueN: number) => {
     return valueN / (isDistributedLoad(loadType) ? distributedForceConversions[distributedForceUnit] : forceConversions[forceUnit]);
@@ -187,6 +194,7 @@ export function useBeamAnalysis() {
 
   // ─── Supports ───────────────────────────────────────────────
   const [supports, setSupports] = useState<Support[]>([{ position: 0, type: "pin" }, { position: 1, type: "roller" }]);
+  const [internalHinges, setInternalHinges] = useState<number[]>([]);
   const [showSupportEditor, setShowSupportEditor] = useState(false);
   const [forceAngle, setForceAngle] = useState(0);
 
@@ -199,7 +207,7 @@ export function useBeamAnalysis() {
       overhanging: [{ position: 0.25, type: "pin" }, { position: 0.75, type: "roller" }],
       continuous: [{ position: 0, type: "pin" }, { position: 0.5, type: "pin" }, { position: 1, type: "roller" }],
       "multi-span": [{ position: 0, type: "pin" }, { position: 0.33, type: "roller" }, { position: 0.66, type: "roller" }, { position: 1, type: "roller" }],
-      gerber: [{ position: 0, type: "pin" }, { position: 0.5, type: "hinge" }, { position: 1, type: "roller" }],
+      gerber: [{ position: 0, type: "fixed" }, { position: 1, type: "roller" }],
       "elastic-foundation": [{ position: 0, type: "pin" }, { position: 1, type: "roller" }],
       "spring-supported": [{ position: 0, type: "pin" }, { position: 0.5, type: "roller" }, { position: 1, type: "roller" }],
       settlement: [{ position: 0, type: "fixed" }, { position: 1, type: "roller" }],
@@ -208,6 +216,7 @@ export function useBeamAnalysis() {
       composite: [{ position: 0, type: "pin" }, { position: 1, type: "roller" }],
     };
     setSupports(map[beamType]);
+    setInternalHinges(beamType === "gerber" ? [0.5] : []);
   }, [beamType]);
 
   // ─── Cross-section ──────────────────────────────────────────
@@ -362,10 +371,10 @@ export function useBeamAnalysis() {
       solverElasticModulus,
       solverMomentOfInertia,
       supports,
-      { numPoints: 400, includeEventSamples: true },
+      { numPoints: 400, includeEventSamples: true, includeExtremaSamples: true, internalHinges },
       solverSectionModulus,
     );
-  }, [beamType, activeLoads, selfWeightLoad, beamLength, sectionProps, solverElasticModulus, solverMomentOfInertia, solverSectionModulus, supports]);
+  }, [beamType, activeLoads, selfWeightLoad, beamLength, sectionProps, solverElasticModulus, solverMomentOfInertia, solverSectionModulus, supports, internalHinges]);
   const beamResult: BeamAnalysis = beamSolution.analysis;
   const diagramData = beamSolution.diagramData;
   const governingMoment = Math.abs(beamResult.maxBendingMoment) >= Math.abs(beamResult.minBendingMoment ?? 0)
@@ -483,14 +492,14 @@ export function useBeamAnalysis() {
     const addMarker = (load: LoadConfig, idx: number, color: string) => {
       const lbl = (prefix: string) => loadMode === "hybrid" ? `${prefix}${idx + 1}` : prefix;
       if (load.type === "concentrated" || load.type === "moving") {
-        const pos = load.type === "moving" ? (load.movingStep || 0.5) : (load.position || 0.5);
+        const pos = load.type === "moving" ? (load.movingStep ?? 0.5) : (load.position ?? 0.5);
         markers.push({ position: pos * beamLength, intensity: load.intensity, type: load.type, label: lbl("P"), color });
       } else if (load.type === "moment") {
-        markers.push({ position: (load.position || 0.5) * beamLength, intensity: load.intensity, type: load.type, label: lbl("M"), color });
+        markers.push({ position: (load.position ?? 0.5) * beamLength, intensity: load.intensity, type: load.type, label: lbl("M"), color });
       } else if (load.type === "udl") {
         markers.push({ position: 0, intensity: load.intensity, type: load.type, label: lbl("w"), endPosition: beamLength, color });
       } else if (load.type === "partial-udl") {
-        markers.push({ position: (load.startPosition || 0.25) * beamLength, intensity: load.intensity, type: load.type, label: lbl("w"), endPosition: (load.endPosition || 0.75) * beamLength, color });
+        markers.push({ position: (load.startPosition ?? 0.25) * beamLength, intensity: load.intensity, type: load.type, label: lbl("w"), endPosition: (load.endPosition ?? 0.75) * beamLength, color });
       } else if (load.type === "triangular") {
         markers.push({ position: 0, intensity: load.intensity, type: load.type, label: lbl("△"), endPosition: beamLength, color });
       } else if (load.type === "trapezoidal") {
@@ -580,9 +589,9 @@ export function useBeamAnalysis() {
             const unit = isMomentType ? du.moment.unit : isPointType ? du.force.unit : du.distForce.unit;
             const intFactor = isMomentType ? du.moment.factor : isPointType ? du.force.factor : du.distForce.factor;
             let posInfo = "-";
-            if (load.type === "concentrated" || load.type === "moment") posInfo = `${((load.position || 0.5) * beamLength * posConv).toFixed(2)} ${lu}`;
-            else if (load.type === "moving") posInfo = `${((load.movingStep || 0.5) * beamLength * posConv).toFixed(2)} ${lu} (moving)`;
-            else if (load.type === "partial-udl") posInfo = `${((load.startPosition || 0.25) * beamLength * posConv).toFixed(2)} - ${((load.endPosition || 0.75) * beamLength * posConv).toFixed(2)} ${lu}`;
+            if (load.type === "concentrated" || load.type === "moment") posInfo = `${((load.position ?? 0.5) * beamLength * posConv).toFixed(2)} ${lu}`;
+            else if (load.type === "moving") posInfo = `${((load.movingStep ?? 0.5) * beamLength * posConv).toFixed(2)} ${lu} (moving)`;
+            else if (load.type === "partial-udl") posInfo = `${((load.startPosition ?? 0.25) * beamLength * posConv).toFixed(2)} - ${((load.endPosition ?? 0.75) * beamLength * posConv).toFixed(2)} ${lu}`;
             else posInfo = `0 - ${(beamLength * posConv).toFixed(2)} ${lu} (full span)`;
             return [`L${i + 1}`, getLoadTypeLabel(load.type), (load.intensity * intFactor).toFixed(2), unit, posInfo];
           }),
@@ -698,7 +707,7 @@ export function useBeamAnalysis() {
     convertLengthToDisplay, convertLengthFromDisplay, getDisplayForceUnit,
     isImperial, dimFactor, dimUnit, dimToInternal, displayUnits,
     // Supports
-    supports, setSupports, showSupportEditor, setShowSupportEditor,
+    supports, setSupports, internalHinges, setInternalHinges, showSupportEditor, setShowSupportEditor,
     forceAngle, setForceAngle,
     // Cross-section
     crossSectionType, setCrossSectionType,

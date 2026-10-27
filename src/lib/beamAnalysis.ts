@@ -208,8 +208,12 @@ export interface BeamSolverOptions {
   extraSamplePositions?: number[];
   /** Add samples immediately before and after point, support, and load events. */
   includeEventSamples?: boolean;
+  /** Add interior V=0, q=0, and deflection-slope roots to the plotted data. */
+  includeExtremaSamples?: boolean;
   /** Number of finite elements across the beam. */
   elementCount?: number;
+  /** Unrestrained internal moment releases, expressed as fractions of beam length. */
+  internalHinges?: number[];
 }
 
 export interface BeamSupportReaction {
@@ -656,7 +660,7 @@ function defaultBeamSupports(beamType: BeamType): BeamSupportCondition[] {
     case 'overhanging': return [{ position: 0.25, type: 'pin' }, { position: 0.75, type: 'roller' }];
     case 'continuous': return [{ position: 0, type: 'pin' }, { position: 0.5, type: 'pin' }, { position: 1, type: 'roller' }];
     case 'multi-span': return [{ position: 0, type: 'pin' }, { position: 0.33, type: 'roller' }, { position: 0.66, type: 'roller' }, { position: 1, type: 'roller' }];
-    case 'gerber': return [{ position: 0, type: 'pin' }, { position: 0.5, type: 'hinge' }, { position: 1, type: 'roller' }];
+    case 'gerber': return [{ position: 0, type: 'fixed' }, { position: 1, type: 'roller' }];
     case 'spring-supported': return [{ position: 0, type: 'pin' }, { position: 0.5, type: 'roller' }, { position: 1, type: 'roller' }];
     case 'simply-supported':
     case 'elastic-foundation':
@@ -681,9 +685,41 @@ function normalizedBeamSupports(beamType: BeamType, supports: BeamSupportConditi
   return defaultBeamSupports(beamType);
 }
 
-function hasStableSupportLayout(supports: BeamSupportCondition[]): boolean {
+function hasStableSupportLayout(supports: BeamSupportCondition[], internalHinges: number[] = []): boolean {
   const active = supports.filter((support) => support.type !== 'none' && Number.isFinite(support.position));
-  return active.some((support) => support.type === 'fixed') || new Set(active.map((support) => support.position.toFixed(9))).size >= 2;
+  const normalizePosition = (position: number) => Math.min(1, Math.max(0, position)).toFixed(9);
+  const verticalPositions = new Set(active.map((support) => normalizePosition(support.position)));
+  const fixedPositions = new Set(active.filter((support) => support.type === 'fixed').map((support) => normalizePosition(support.position)));
+  const hingePositions = new Set([
+    ...active.filter((support) => support.type === 'hinge').map((support) => support.position),
+    ...internalHinges,
+  ]
+    .filter((position) => position > 1e-9 && position < 1 - 1e-9)
+    .map(normalizePosition));
+
+  // A vertical restraint removes one rigid-body DOF and each fixed end adds
+  // rotational restraint. Every ungrounded release adds one mechanism DOF,
+  // so the layout needs that many independent restraints to remain stable.
+  for (const fixedPosition of fixedPositions) hingePositions.delete(fixedPosition);
+  return verticalPositions.size + fixedPositions.size >= 2 + hingePositions.size;
+}
+
+function stableFallbackSupports(beamType: BeamType, internalHinges: number[]): BeamSupportCondition[] {
+  const defaults = defaultBeamSupports(beamType);
+  if (hasStableSupportLayout(defaults, internalHinges)) return defaults;
+
+  const fallback: BeamSupportCondition[] = [{ position: 0, type: 'fixed' }, { position: 1, type: 'roller' }];
+  if (hasStableSupportLayout(fallback, internalHinges)) return fallback;
+
+  for (let step = 1; step < 100; step++) {
+    const position = step / 100;
+    if (fallback.some((support) => Math.abs(support.position - position) < 1e-9)
+      || internalHinges.some((hinge) => Math.abs(hinge - position) < 1e-9)) continue;
+    fallback.push({ position, type: 'roller' });
+    if (hasStableSupportLayout(fallback, internalHinges)) return fallback;
+  }
+
+  throw new Error('Beam support configuration is unstable with the selected internal releases.');
 }
 
 function loadPosition(load: LoadConfig, beamLength: number): number {
@@ -819,8 +855,16 @@ export function solveBeamResponse(
   // I ≈ 7e-18 m⁴) and makes the beam appear hundreds of times too stiff.
   const I = Math.max(momentOfInertia, 1e-30);
   const meshCount = Math.max(12, Math.min(160, Math.floor(options.elementCount ?? 80)));
-  const supportFallback = supports !== undefined && !hasStableSupportLayout(supports);
-  const supportConditions = normalizedBeamSupports(beamType, supports, L);
+  const internalHingeFractions = (options.internalHinges ?? (beamType === 'gerber' ? [0.5] : []))
+    .filter(Number.isFinite)
+    .map((position) => Math.min(1, Math.max(0, position)));
+  const requestedSupportConditions = supports ?? defaultBeamSupports(beamType);
+  const supportFallback = (supports !== undefined && supports.length === 0)
+    || !hasStableSupportLayout(requestedSupportConditions, internalHingeFractions);
+  const supportConditions = supportFallback
+    ? stableFallbackSupports(beamType, internalHingeFractions)
+    : normalizedBeamSupports(beamType, supports, L);
+  const internalHingePositions = internalHingeFractions.map((position) => position * L);
   const pointForces = loads
     .filter((load) => load.type === 'concentrated' || load.type === 'moving' || load.type === 'axle-train')
     .map((load) => ({
@@ -837,6 +881,7 @@ export function solveBeamResponse(
 
   const events = [
     ...supportConditions.map((support) => support.position * L),
+    ...internalHingePositions,
     ...pointForces.map((load) => load.position),
     ...pointMoments.map((load) => load.position),
   ];
@@ -845,7 +890,7 @@ export function solveBeamResponse(
     .filter(Number.isFinite)
     .map((x) => Math.min(L, Math.max(0, x)));
   const tolerance = L * 1e-10;
-  const coordinates = [...Array.from({ length: meshCount + 1 }, (_, index) => (index / meshCount) * L), 0, L, ...events]
+  const coordinates = [...Array.from({ length: meshCount + 1 }, (_, index) => (index / meshCount) * L), 0, L, ...events, ...distributedLoadBoundaries]
     .map((x) => Math.min(L, Math.max(0, x)))
     .sort((a, b) => a - b)
     .filter((x, index, values) => index === 0 || Math.abs(x - values[index - 1]) > tolerance);
@@ -869,11 +914,17 @@ export function solveBeamResponse(
     if (!existing || support.type === 'fixed' || (support.type === 'hinge' && existing !== 'fixed')) supportAtNode.set(node, support.type);
   }
 
+  const internalHingeNodes = new Set(internalHingePositions.map(positionToNode));
+  for (const [node, type] of supportAtNode) {
+    if (type === 'hinge') internalHingeNodes.add(node);
+    if (type === 'fixed') internalHingeNodes.delete(node);
+  }
+
   const leftRotation = Array.from({ length: nodeCount }, (_, node) => node * 2 + 1);
   const rightRotation = [...leftRotation];
   let degreeCount = nodeCount * 2;
-  for (const [node, type] of supportAtNode) {
-    if (type === 'hinge' && node > 0 && node < nodeCount - 1) rightRotation[node] = degreeCount++;
+  for (const node of internalHingeNodes) {
+    if (node > 0 && node < nodeCount - 1) rightRotation[node] = degreeCount++;
   }
 
   const elementDofs: number[][] = [];
@@ -944,7 +995,7 @@ export function solveBeamResponse(
   const reducedF = new Float64Array(freeDofs.map((degree) => force[degree]));
   let solved = solveDenseSystem(reducedK, reducedF);
   if (!solved) {
-    const fallbackSupports = defaultBeamSupports(beamType);
+    const fallbackSupports = stableFallbackSupports(beamType, internalHingeFractions);
     const alreadyUsingDefaults = supportConditions.length === fallbackSupports.length && supportConditions.every((support, index) =>
       support.type === fallbackSupports[index].type && support.position === fallbackSupports[index].position,
     );
@@ -962,13 +1013,65 @@ export function solveBeamResponse(
     residual[row] = value;
   }
 
-  const supportReactions = [...supportAtNode.entries()].map(([node, type]) => ({
+  const rawSupportReactions = [...supportAtNode.entries()].map(([node, type]) => ({
     position: coordinates[node],
     vertical: residual[node * 2],
     // A fixed support has one shared rotational DOF. Summing left and right
     // entries doubled its reaction moment because both indices reference it.
     moment: type === 'fixed' ? residual[leftRotation[node]] : 0,
   }));
+
+  let totalLoad = 0;
+  let firstMoment = 0;
+  for (const load of distributedLoads) {
+    totalLoad += integrateDistributedLoad(load, L, 0, L);
+    // Integrate x·q(x) directly; the Gauss rule is exact for the supported load profiles.
+    const [rawStart, rawEnd] = distributedLoadBounds(load, L);
+    const start = Math.max(0, Math.min(rawStart, rawEnd));
+    const end = Math.min(L, Math.max(rawStart, rawEnd));
+    if (end > start) {
+      const midpoint = (start + end) / 2;
+      const halfLength = (end - start) / 2;
+      for (let i = 0; i < gaussNodes.length; i++) {
+        const x = midpoint + halfLength * gaussNodes[i];
+        firstMoment += gaussWeights[i] * x * distributedIntensityAt(load, x, L) * halfLength;
+      }
+    }
+  }
+  for (const point of pointForces) {
+    totalLoad += point.downward;
+    firstMoment += point.downward * point.position;
+  }
+
+  // The finite-element solve determines compatibility reactions. Project its
+  // global force and moment residual onto the support reactions so diagrams
+  // close at supports and free ends even for very flexible or thin sections.
+  // The minimum-norm correction preserves the stiffness solution's reaction
+  // sharing for indeterminate layouts while enforcing the equilibrium sums.
+  const fixedSupportNodes = new Set([...supportAtNode.entries()].filter(([, type]) => type === 'fixed').map(([node]) => node));
+  const fixedMomentCount = fixedSupportNodes.size;
+  const normalizedPositions = rawSupportReactions.map((reaction) => reaction.position / L);
+  const sumPosition = normalizedPositions.reduce((sum, position) => sum + position, 0);
+  const sumPositionSquared = normalizedPositions.reduce((sum, position) => sum + position * position, 0);
+  const a00 = rawSupportReactions.length;
+  const a01 = sumPosition;
+  const a11 = sumPositionSquared + fixedMomentCount;
+  const determinant = a00 * a11 - a01 * a01;
+  const verticalResidual = totalLoad - rawSupportReactions.reduce((sum, reaction) => sum + reaction.vertical, 0);
+  const targetReactionMoment = firstMoment - pointMoments.reduce((sum, point) => sum + point.moment, 0);
+  const currentReactionMoment = rawSupportReactions.reduce((sum, reaction) =>
+    sum + reaction.vertical * reaction.position + reaction.moment, 0);
+  const normalizedMomentResidual = (targetReactionMoment - currentReactionMoment) / L;
+  const lambda0 = determinant > 1e-14 ? (verticalResidual * a11 - normalizedMomentResidual * a01) / determinant : 0;
+  const lambda1 = determinant > 1e-14 ? (normalizedMomentResidual * a00 - verticalResidual * a01) / determinant : 0;
+  const supportReactions = rawSupportReactions.map((reaction, index) => {
+    const node = positionToNode(reaction.position);
+    return {
+      ...reaction,
+      vertical: reaction.vertical + lambda0 + normalizedPositions[index] * lambda1,
+      moment: fixedSupportNodes.has(node) ? reaction.moment + L * lambda1 : reaction.moment,
+    };
+  });
 
   const integrateAllDistributed = (from: number, to: number, momentAboutX?: number) =>
     distributedLoads.reduce((sum, load) => sum + integrateDistributedLoad(load, L, from, to, momentAboutX), 0);
@@ -1024,31 +1127,96 @@ export function solveBeamResponse(
   };
 
   const numPoints = Math.max(1, Math.floor(options.numPoints ?? 400));
-  const chartXs = Array.from({ length: numPoints + 1 }, (_, index) => (index / numPoints) * L);
   const epsilon = Math.max(L * 1e-7, 1e-9);
+  const physicalBreakpoints = [...new Set([
+    0,
+    L,
+    ...supportConditions.map((support) => support.position * L),
+    ...internalHingePositions,
+    ...pointForces.map((point) => point.position),
+    ...pointMoments.map((point) => point.position),
+    ...distributedLoadBoundaries,
+  ].map((x) => Math.min(L, Math.max(0, x))).sort((a, b) => a - b))];
+  const eventPositions = physicalBreakpoints;
   const chartEventPositions = options.includeEventSamples ? [
       ...supportConditions.map((support) => support.position * L),
+      ...internalHingePositions,
       ...pointForces.map((point) => point.position),
       ...pointMoments.map((point) => point.position),
       ...distributedLoadBoundaries,
     ] : [];
-  for (const position of chartEventPositions) {
-    chartXs.push(position - epsilon, position, position + epsilon);
-  }
-  for (const extraPosition of options.extraSamplePositions ?? []) {
-    if (Number.isFinite(extraPosition) && extraPosition >= 0 && extraPosition <= L) chartXs.push(extraPosition);
-  }
-  const sortedChartXs = chartXs.sort((a, b) => a - b).filter((x, index, values) => index === 0 || Math.abs(x - values[index - 1]) > tolerance);
-  const diagramData = sortedChartXs.map((x) => {
-    const point = evaluateAt(x);
-    return { x: point.x, shear: point.shear / 1000, moment: point.moment / 1000, load: point.load / 1000, deflection: point.deflection * 1000 };
-  });
-
-  const eventPositions = [...coordinates, ...pointForces.map((point) => point.position), ...pointMoments.map((point) => point.position)];
+  const findRoots = (valueAt: (x: number) => number, intervals: number[], subdivisions = 16): number[] => {
+    const roots: number[] = [];
+    const rootTolerance = Math.max(L * 1e-12, 1e-14);
+    const endpointInset = Math.max(tolerance * 4, 1e-14);
+    for (let interval = 0; interval < intervals.length - 1; interval++) {
+      const start = intervals[interval];
+      const end = intervals[interval + 1];
+      if (end - start <= endpointInset * 2) continue;
+      const interiorStart = start + endpointInset;
+      const interiorEnd = end - endpointInset;
+      const samples = Array.from({ length: subdivisions + 1 }, (_, sample) => {
+        const x = interiorStart + (interiorEnd - interiorStart) * sample / subdivisions;
+        return { x, value: valueAt(x) };
+      });
+      if (samples.every((sample) => sample.value === 0)) continue;
+      let previousX = samples[0].x;
+      let previousValue = samples[0].value;
+      for (let sample = 1; sample < samples.length; sample++) {
+        const currentX = samples[sample].x;
+        const currentValue = samples[sample].value;
+        if (previousValue === 0) roots.push(previousX);
+        if ((previousValue < 0 && currentValue > 0) || (previousValue > 0 && currentValue < 0)) {
+          let low = previousX;
+          let high = currentX;
+          let lowValue = previousValue;
+          for (let iteration = 0; iteration < 64; iteration++) {
+            const middle = (low + high) / 2;
+            const middleValue = valueAt(middle);
+            if (middleValue === 0 || high - low <= rootTolerance) {
+              low = middle;
+              high = middle;
+              break;
+            }
+            if ((lowValue < 0 && middleValue > 0) || (lowValue > 0 && middleValue < 0)) high = middle;
+            else {
+              low = middle;
+              lowValue = middleValue;
+            }
+          }
+          roots.push((low + high) / 2);
+        }
+        previousX = currentX;
+        previousValue = currentValue;
+      }
+      if (previousValue === 0) roots.push(previousX);
+    }
+    return roots.filter((root, index) => index === 0 || Math.abs(root - roots[index - 1]) > rootTolerance);
+  };
+  const distributedLoadAt = (x: number) => distributedLoads.reduce((sum, load) => sum + distributedIntensityAt(load, x, L), 0);
+  const shearRoots = findRoots((x) => evaluateAt(x).shear, physicalBreakpoints, 32);
+  const distributedLoadRoots = findRoots(distributedLoadAt, physicalBreakpoints, 32);
+  const deflectionSlopeAt = (rawX: number): number => {
+    const x = Math.min(L, Math.max(0, rawX));
+    const element = elementForX(x);
+    const x1 = coordinates[element];
+    const length = coordinates[element + 1] - x1;
+    const xi = Math.min(1, Math.max(0, (x - x1) / length));
+    const dofs = elementDofs[element];
+    const dn1 = -6 * xi + 6 * xi * xi;
+    const dn2 = length * (1 - 4 * xi + 3 * xi * xi);
+    const dn3 = 6 * xi - 6 * xi * xi;
+    const dn4 = length * (-2 * xi + 3 * xi * xi);
+    return -(dn1 * displacement[dofs[0]] + dn2 * displacement[dofs[1]] + dn3 * displacement[dofs[2]] + dn4 * displacement[dofs[3]]) / length;
+  };
+  const deflectionRoots = findRoots(deflectionSlopeAt, coordinates, 8);
   const extremaXs = [
-    ...Array.from({ length: Math.max(400, numPoints) + 1 }, (_, index) => (index / Math.max(400, numPoints)) * L),
     ...eventPositions,
     ...eventPositions.flatMap((position) => [position - epsilon, position + epsilon]),
+    ...distributedLoadBoundaries,
+    ...shearRoots,
+    ...distributedLoadRoots,
+    ...deflectionRoots,
   ].map((x) => Math.min(L, Math.max(0, x))).sort((a, b) => a - b)
     .filter((x, index, values) => index === 0 || Math.abs(x - values[index - 1]) > tolerance);
 
@@ -1076,27 +1244,18 @@ export function solveBeamResponse(
     maxAbsMoment = Math.max(maxAbsMoment, Math.abs(point.moment));
   }
 
-  let totalLoad = 0;
-  let firstMoment = 0;
-  for (const load of distributedLoads) {
-    totalLoad += integrateDistributedLoad(load, L, 0, L);
-    // Integrate x·q(x) directly; the Gauss rule is exact for the supported load profiles.
-    const [rawStart, rawEnd] = distributedLoadBounds(load, L);
-    const start = Math.max(0, Math.min(rawStart, rawEnd));
-    const end = Math.min(L, Math.max(rawStart, rawEnd));
-    if (end > start) {
-      const midpoint = (start + end) / 2;
-      const halfLength = (end - start) / 2;
-      for (let i = 0; i < gaussNodes.length; i++) {
-        const x = midpoint + halfLength * gaussNodes[i];
-        firstMoment += gaussWeights[i] * x * distributedIntensityAt(load, x, L) * halfLength;
-      }
-    }
-  }
-  for (const point of pointForces) {
-    totalLoad += point.downward;
-    firstMoment += point.downward * point.position;
-  }
+  const chartXs = [
+    ...Array.from({ length: numPoints + 1 }, (_, index) => (index / numPoints) * L),
+    ...chartEventPositions.flatMap((position) => [position - epsilon, position, position + epsilon]),
+    ...(options.includeExtremaSamples ? [...shearRoots, ...distributedLoadRoots, ...deflectionRoots] : []),
+    ...(options.extraSamplePositions ?? []).filter((position) => Number.isFinite(position) && position >= 0 && position <= L),
+  ].map((x) => Math.min(L, Math.max(0, x))).sort((a, b) => a - b)
+    .filter((x, index, values) => index === 0 || Math.abs(x - values[index - 1]) > tolerance);
+  const diagramData = chartXs.map((x) => {
+    const point = evaluateAt(x);
+    return { x: point.x, shear: point.shear / 1000, moment: point.moment / 1000, load: point.load / 1000, deflection: point.deflection * 1000 };
+  });
+
   const momentAtSupport = Math.max(0, ...supportReactions.map((reaction) => Math.abs(reaction.moment)));
   const analysis: BeamAnalysis = {
     totalLoad,
@@ -1167,7 +1326,7 @@ export function analyzeSimplySupported(
       break;
     }
     case 'moving': {
-      const pos = (loadConfig.movingStep || 0.5) * L;
+      const pos = (loadConfig.movingStep ?? 0.5) * L;
       const a = pos;
       const b = L - a;
       totalLoad = intensity;
@@ -1179,8 +1338,8 @@ export function analyzeSimplySupported(
       break;
     }
     case 'partial-udl': {
-      const a = (loadConfig.startPosition || 0.25) * L;
-      const b = (loadConfig.endPosition || 0.75) * L;
+      const a = (loadConfig.startPosition ?? 0.25) * L;
+      const b = (loadConfig.endPosition ?? 0.75) * L;
       const loadLength = b - a;
       totalLoad = intensity * loadLength;
       centroidX = a + loadLength / 2;
@@ -1298,7 +1457,7 @@ export function analyzeCantilever(
       break;
     }
     case 'moving': {
-      const pos = (loadConfig.movingStep || 1) * L;
+      const pos = (loadConfig.movingStep ?? 1) * L;
       totalLoad = intensity;
       centroidX = pos;
       maxBendingMoment = intensity * pos;
@@ -1309,7 +1468,7 @@ export function analyzeCantilever(
     }
     case 'partial-udl': {
       const a = (loadConfig.startPosition || 0) * L;
-      const b = (loadConfig.endPosition || 1) * L;
+      const b = (loadConfig.endPosition ?? 1) * L;
       const loadLength = b - a;
       totalLoad = intensity * loadLength;
       centroidX = a + loadLength / 2;
@@ -1467,7 +1626,7 @@ export function analyzeProppedCantilever(
 
   switch (type) {
     case 'concentrated': {
-      const a = (loadConfig.position || 0.5) * L;
+      const a = (loadConfig.position ?? 0.5) * L;
       totalLoad = intensity;
       centroidX = a;
       const Rb = (intensity * a * a * (3 * L - a)) / (2 * L * L * L);

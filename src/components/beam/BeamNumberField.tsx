@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 
 interface BeamNumberFieldProps {
@@ -33,7 +33,7 @@ export function BeamNumberField({
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(() => formatValue(value, precision));
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (document.activeElement !== inputRef.current) {
       setDraft(formatValue(value, precision));
     }

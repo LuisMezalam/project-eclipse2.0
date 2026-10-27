@@ -26,6 +26,7 @@ interface BeamSchematicProps {
   forceAngle: number;
   loadIntensity: number;
   supports: Support[];
+  internalHinges?: number[];
   selfWeightIncluded?: boolean;
 }
 
@@ -33,7 +34,7 @@ export function BeamSchematic({
   beamType, compositeModel = "layered", laminateLayup = "", loadType, loadMode = "single", hybridLoads = [], beamLength, lengthUnit, convertLengthToDisplay,
   concentratedPosition, movingPosition, momentPosition,
   partialStart, partialEnd, trapStartIntensity, trapEndIntensity,
-  triangularPeak, forceAngle, loadIntensity, supports, selfWeightIncluded = false,
+  triangularPeak, forceAngle, loadIntensity, supports, internalHinges = [], selfWeightIncluded = false,
 }: BeamSchematicProps) {
   const isFullDistributed = loadType === "udl" || loadType === "construction-stage" || loadType === "prestress";
   const isPointLike = loadType === "concentrated" || loadType === "torsional" || loadType === "harmonic-equivalent";
@@ -121,7 +122,7 @@ export function BeamSchematic({
             Self-weight included · hidden load
           </span>
         )}
-        {(beamType === "tapered" || beamType === "beam-column" || beamType === "composite" || beamType === "elastic-foundation" || beamType === "spring-supported" || beamType === "gerber") && (
+        {(beamType === "tapered" || beamType === "beam-column" || beamType === "composite" || beamType === "elastic-foundation" || beamType === "spring-supported" || beamType === "gerber" || internalHinges.length > 0) && (
           <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             {beamType === "tapered" && <polygon points="8,46 92,49 92,56 8,54" fill="hsl(var(--primary))" opacity="0.42" />}
             {beamType === "composite" && compositeModel === "laminate" ? <>
@@ -150,7 +151,15 @@ export function BeamSchematic({
               const x = [8, 50, 92][i];
               return <path key={i} d={`M ${x} 58 q 2 2 0 4 q -2 2 0 4 q 2 2 0 4`} stroke="hsl(var(--chart-posterior))" strokeWidth="1.2" fill="none" />;
             })}
-            {beamType === "gerber" && <circle cx="50" cy="51" r="2.2" fill="hsl(var(--chart-posterior))" stroke="hsl(var(--background))" strokeWidth="1" />}
+            {internalHinges.map((position, index) => {
+              const x = 8 + Math.min(1, Math.max(0, position)) * 84;
+              return (
+                <g key={`internal-hinge-${index}`}>
+                  <circle cx={x} cy="51" r="2.2" fill="hsl(var(--chart-posterior))" stroke="hsl(var(--background))" strokeWidth="1" />
+                  <line x1={x - 2} y1="51" x2={x + 2} y2="51" stroke="hsl(var(--background))" strokeWidth="0.8" />
+                </g>
+              );
+            })}
           </svg>
         )}
 

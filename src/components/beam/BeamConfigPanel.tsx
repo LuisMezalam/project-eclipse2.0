@@ -76,7 +76,7 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
                     <SelectItem value="pin">Pin</SelectItem>
                     <SelectItem value="roller">Roller</SelectItem>
                     <SelectItem value="fixed">Fixed</SelectItem>
-                    <SelectItem value="hinge">Hinge</SelectItem>
+                    <SelectItem value="hinge">Grounded hinge</SelectItem>
                   </SelectContent>
                 </Select>
                 {b.supports.length > 1 && (
@@ -85,6 +85,43 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
               </div>
             ))}
             <Button variant="outline" size="sm" onClick={() => b.setSupports([...b.supports, { position: 0.5, type: "pin" }])} className="mt-2">+ Add Support</Button>
+          </div>
+          <div className="mt-5 border-t border-border/50 pt-4">
+            <h5 className="text-sm font-medium text-foreground">Internal hinges</h5>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Releases bending moment between beam segments while sharing vertical movement. An internal hinge has no ground reaction.
+            </p>
+            {b.beamType === "gerber" && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The Gerber preset uses a fixed left end and a roller at the right so the ungrounded release remains stable. You can edit the supports below.
+              </p>
+            )}
+            <div className="mt-3 space-y-3">
+              {b.internalHinges.map((position, idx) => (
+                <div key={idx} className="flex items-center gap-3">
+                  <span className="w-20 text-xs text-muted-foreground">Release {idx + 1}</span>
+                  <div className="flex-1">
+                    <BeamNumberField
+                      label="Position"
+                      value={b.convertLengthToDisplay(position * b.beamLength)}
+                      unit={b.lengthUnit}
+                      min={b.convertLengthToDisplay(b.beamLength * 0.001)}
+                      max={b.convertLengthToDisplay(b.beamLength * 0.999)}
+                      step={0.01}
+                      onChange={(v) => {
+                        const next = [...b.internalHinges];
+                        next[idx] = Math.min(0.999, Math.max(0.001, b.convertLengthFromDisplay(v) / b.beamLength));
+                        b.setInternalHinges(next);
+                      }}
+                    />
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => b.setInternalHinges(b.internalHinges.filter((_, i) => i !== idx))} className="h-8 w-8 p-0 text-destructive hover:text-destructive">×</Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={() => b.setInternalHinges([...b.internalHinges, 0.5])}>
+                + Add Internal Hinge
+              </Button>
+            </div>
           </div>
         </div>
       )}

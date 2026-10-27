@@ -209,7 +209,7 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
             </label>
             <Input
               type="number"
-              value={(load.intensity / 1000).toFixed(1)}
+              value={load.intensity / 1000}
               onChange={(e) => updateLoad(index, { intensity: parseFloat(e.target.value) * 1000 || 0 })}
               className="bg-muted/30 h-8 text-xs"
             />
@@ -218,17 +218,19 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
 
         {/* Type-specific controls */}
         {(load.type === 'concentrated' || load.type === 'moment' || load.type === 'torsional' || load.type === 'harmonic-equivalent' || load.type === 'support-settlement' || load.type === 'thermal-gradient') && (
-          <div>
-            <label className="text-xs text-muted-foreground">
-              Position: {((load.position || 0.5) * beamLength).toFixed(2)}m
-            </label>
-            <Slider
-              value={[load.position || 0.5]}
-              onValueChange={([v]) => updateLoad(index, { position: v })}
-              min={0.05}
-              max={0.95}
-              step={0.05}
-              className="mt-1"
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Position along beam (m)</label>
+            <Input
+              type="number"
+              min={0}
+              max={beamLength}
+              step={0.01}
+              value={(load.position ?? 0.5) * beamLength}
+              onChange={(e) => {
+                const position = Number(e.target.value);
+                if (e.target.value !== "" && Number.isFinite(position)) updateLoad(index, { position: Math.max(0, Math.min(beamLength, position)) / beamLength });
+              }}
+              className="bg-muted/30 h-8 text-xs"
             />
           </div>
         )}
@@ -237,7 +239,7 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs text-muted-foreground">
-                Position: {((load.movingStep || 0.5) * beamLength).toFixed(2)}m
+                Position: {((load.movingStep ?? 0.5) * beamLength).toFixed(2)}m
               </label>
               <div className="flex gap-1">
                 <Button
@@ -262,7 +264,7 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
               </div>
             </div>
             <Slider
-              value={[load.movingStep || 0.5]}
+              value={[load.movingStep ?? 0.5]}
               onValueChange={([v]) => {
                 if (animatingLoadIndex === index) setAnimatingLoadIndex(null);
                 updateLoad(index, { movingStep: v });
@@ -307,25 +309,33 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
         {(load.type === 'partial-udl' || load.type === 'patch' || load.type === 'prestress') && (
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-muted-foreground">Start: {((load.startPosition || 0.25) * 100).toFixed(0)}%</label>
-              <Slider
-                value={[load.startPosition || 0.25]}
-                onValueChange={([v]) => updateLoad(index, { startPosition: v })}
+              <label className="text-xs text-muted-foreground">Load start (m)</label>
+              <Input
+                type="number"
                 min={0}
-                max={(load.endPosition || 0.75) - 0.1}
-                step={0.05}
-                className="mt-1"
+                max={((load.endPosition ?? 0.75) * beamLength)}
+                step={0.01}
+                value={(load.startPosition ?? 0.25) * beamLength}
+                onChange={(e) => {
+                  const position = Number(e.target.value);
+                  if (e.target.value !== "" && Number.isFinite(position)) updateLoad(index, { startPosition: Math.max(0, Math.min((load.endPosition ?? 0.75) * beamLength, position)) / beamLength });
+                }}
+                className="bg-muted/30 h-8 text-xs"
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">End: {((load.endPosition || 0.75) * 100).toFixed(0)}%</label>
-              <Slider
-                value={[load.endPosition || 0.75]}
-                onValueChange={([v]) => updateLoad(index, { endPosition: v })}
-                min={(load.startPosition || 0.25) + 0.1}
-                max={1}
-                step={0.05}
-                className="mt-1"
+              <label className="text-xs text-muted-foreground">Load end (m)</label>
+              <Input
+                type="number"
+                min={((load.startPosition ?? 0.25) * beamLength)}
+                max={beamLength}
+                step={0.01}
+                value={(load.endPosition ?? 0.75) * beamLength}
+                onChange={(e) => {
+                  const position = Number(e.target.value);
+                  if (e.target.value !== "" && Number.isFinite(position)) updateLoad(index, { endPosition: Math.max((load.startPosition ?? 0.25) * beamLength, Math.min(beamLength, position)) / beamLength });
+                }}
+                className="bg-muted/30 h-8 text-xs"
               />
             </div>
           </div>
@@ -363,9 +373,9 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
             <p className="text-xs text-muted-foreground">f(x) = mx + b (N/m)</p>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs text-muted-foreground">m: {load.slope || 1000}</label>
+                <label className="text-xs text-muted-foreground">m: {load.slope ?? 1000}</label>
                 <Slider
-                  value={[load.slope || 1000]}
+                  value={[load.slope ?? 1000]}
                   onValueChange={([v]) => updateLoad(index, { slope: v })}
                   min={-5000}
                   max={5000}

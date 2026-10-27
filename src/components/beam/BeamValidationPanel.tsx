@@ -80,7 +80,7 @@ export function BeamValidationPanel({ validation, supportFallback }: BeamValidat
 
       {supportFallback && (
         <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-          The selected supports cannot restrain the beam. Results are using the standard supports for this beam type; add a fixed support or supports at two different positions to analyze the selected layout.
+          The selected support and release layout is unstable. Results use a stable fallback layout; add suitable restraints away from the internal releases to analyze the intended model.
         </div>
       )}
 
