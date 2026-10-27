@@ -28,6 +28,7 @@ import {
   ChevronDown,
   Link2,
   AlertTriangle,
+  Brain,
   Ruler,
   Triangle,
   BarChart3,
