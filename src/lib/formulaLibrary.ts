@@ -367,7 +367,7 @@ export const formulaLibrary: FormulaDefinition[] = [
       { symbol: "zeta", meaning: "Damping ratio" },
       { symbol: "DAF", meaning: "Dynamic amplification factor" },
     ],
-    toolTabs: ["reliability"],
+    toolTabs: [],
     importance: "core",
     outputs: ["Amplified demand", "Dynamic risk multiplier"],
     watchpoints: ["Low damping can produce large amplification near r = 1.", "Dynamic demand should feed reliability checks when vibration governs."],

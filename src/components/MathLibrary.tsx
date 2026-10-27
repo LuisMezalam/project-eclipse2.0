@@ -15,7 +15,6 @@ import {
   Sigma,
   Percent,
   Target,
-  Waves,
   Layers,
   Beaker
 } from "lucide-react";
@@ -129,10 +128,6 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
           <TabsTrigger value="trusses" className="text-xs sm:text-sm">
             <Triangle className="h-3 w-3 mr-1" />
             Trusses
-          </TabsTrigger>
-          <TabsTrigger value="dynamics" className="text-xs sm:text-sm">
-            <Waves className="h-3 w-3 mr-1" />
-            Dynamics
           </TabsTrigger>
           <TabsTrigger value="distributions" className="text-xs sm:text-sm">
             <BarChart3 className="h-3 w-3 mr-1" />
@@ -475,7 +470,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="E[aX + b] = a × E[X] + b"
                       latex="\mathbb{E}[aX + b] = a \, \mathbb{E}[X] + b"
                       description="Mean of affine transformation."
-                      usedIn={["Static Loads", "Dynamic"]}
+                      usedIn={["Static Loads", "Math Library"]}
                       category="core"
                     />
                     <Formula
@@ -483,7 +478,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="Var(aX + b) = a² × Var(X)"
                       latex="\text{Var}(aX + b) = a^2 \, \text{Var}(X)"
                       description="Variance of affine transformation (additive constants don't affect variance)."
-                      usedIn={["Static Loads", "Dynamic"]}
+                      usedIn={["Static Loads", "Math Library"]}
                       category="core"
                     />
                     <Formula
@@ -606,6 +601,61 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
             </CardHeader>
             <CardContent>
               <Accordion type="multiple" className="space-y-2">
+                <AccordionItem value="loads-signs-equilibrium">
+                  <AccordionTrigger className="text-sm font-medium">Load Signs, Superposition & Support Reactions</AccordionTrigger>
+                  <AccordionContent className="space-y-4">
+                    <Formula
+                      name="Beam Diagram Sign Convention"
+                      formula="q > 0 and P > 0 downward; Ry > 0 upward; δ > 0 downward; M > 0 sagging"
+                      latex="\frac{dV}{dx}=-q(x),\quad \frac{dM}{dx}=V(x),\quad EI\frac{d^2\delta}{dx^2}=-M(x)"
+                      description="The solver treats downward distributed and point loads as positive, upward support reactions as positive, downward deflection as positive, and sagging moment as positive. Upward applied loads use the opposite sign. Point loads create shear jumps; applied couples create moment jumps."
+                      variables={[
+                        { symbol: "q(x)", meaning: "Signed distributed load, positive downward" },
+                        { symbol: "V, M", meaning: "Solver shear and sagging-positive bending moment" },
+                        { symbol: "δ", meaning: "Vertical deflection, positive downward" },
+                        { symbol: "EI", meaning: "Flexural rigidity used by the selected beam section" }
+                      ]}
+                      usedIn={["Static Loads", "Hybrid Loads"]}
+                      category="core"
+                    />
+                    <Formula
+                      name="Hybrid Load Superposition"
+                      formula="qtotal = Σqi + qself;  Vtotal = ΣVi;  Mtotal = ΣMi;  δtotal = Σδi"
+                      latex="q_{total}(x)=\sum_i q_i(x)+q_{self}(x),\quad V_{total}=\sum_i V_i,\quad M_{total}=\sum_i M_i,\quad \delta_{total}=\sum_i \delta_i"
+                      description="For the linear-elastic beam model with fixed geometry, material properties, and supports, each signed load case and enabled self-weight UDL contributes to the same V, M, and deflection response. Reversing a load direction reverses that load case's signed contribution."
+                      usedIn={["Static Loads", "Hybrid Loads"]}
+                      category="core"
+                    />
+                    <Formula
+                      name="Vertical Reaction Balance"
+                      formula="ΣRy = Wdown = ΣPdown + ∫₀ᴸ q(x) dx"
+                      latex="\sum_i R_{y,i}=W_{down}=\sum_j P_{down,j}+\int_0^L q(x)\,dx"
+                      description="The signed downward resultant is balanced by the upward vertical reactions. The solver also includes reaction moments and applied couples in moment equilibrium. The displayed reaction panel reports vertical forces and fixed-support moments; horizontal reactions are outside this beam model."
+                      variables={[
+                        { symbol: "Ry", meaning: "Vertical support reaction, positive upward" },
+                        { symbol: "Pdown", meaning: "Signed point load, positive downward" },
+                        { symbol: "q(x)", meaning: "Signed distributed load, positive downward" },
+                        { symbol: "Wdown", meaning: "Total signed downward load resultant" }
+                      ]}
+                      usedIn={["Static Loads", "Support Reactions"]}
+                      category="core"
+                    />
+                    <Formula
+                      name="Beam Self-Weight as a Full-Span UDL"
+                      formula="qself = ΣγiAi;  qtotal(x) = qapplied(x) + qself"
+                      latex="q_{self}=\sum_i \gamma_i A_i,\quad q_{total}(x)=q_{applied}(x)+q_{self}"
+                      description="Enabled beam self-weight is added as a uniform dead load over the full span before V, M, reactions, and deflection are evaluated. For a composite section, each material uses its own unit weight and area; unit weight γ is force per volume."
+                      variables={[
+                        { symbol: "γi", meaning: "Material unit weight [force/volume]" },
+                        { symbol: "Ai", meaning: "Area of material layer i" },
+                        { symbol: "qself", meaning: "Self-weight line load [force/length]" }
+                      ]}
+                      usedIn={["Static Loads", "Hybrid Loads"]}
+                      category="core"
+                    />
+                  </AccordionContent>
+                </AccordionItem>
+
                 <AccordionItem value="simply-supported">
                   <AccordionTrigger className="text-sm font-medium">Simply Supported Beam</AccordionTrigger>
                   <AccordionContent className="space-y-4">
@@ -918,6 +968,26 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                   </AccordionContent>
                 </AccordionItem>
 
+                <AccordionItem value="truss-self-weight">
+                  <AccordionTrigger className="text-sm font-medium">Member Self-Weight</AccordionTrigger>
+                  <AccordionContent className="space-y-4">
+                    <Formula
+                      name="Uniform Member Weight to Nodal Loads"
+                      formula="Wm = γAL;  Fstart = Fend = Wm / 2"
+                      latex="W_m=\gamma A L,\quad F_{start}=F_{end}=\frac{W_m}{2}"
+                      description="When member self-weight is enabled, each prismatic truss member's uniform weight is represented by equal downward nodal loads at its two ends, then combined with the user loads in Ku = F."
+                      variables={[
+                        { symbol: "γ", meaning: "Material unit weight [force/volume]" },
+                        { symbol: "A", meaning: "Member cross-sectional area" },
+                        { symbol: "L", meaning: "Member length" },
+                        { symbol: "Wm", meaning: "Total member self-weight" }
+                      ]}
+                      usedIn={["Truss"]}
+                      category="core"
+                    />
+                  </AccordionContent>
+                </AccordionItem>
+
                 <AccordionItem value="member-forces">
                   <AccordionTrigger className="text-sm font-medium">Member Forces & Stress</AccordionTrigger>
                   <AccordionContent className="space-y-4">
@@ -977,236 +1047,6 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       description="Bounds for series system probability of failure."
                       usedIn={["Truss"]}
                       category="advanced"
-                    />
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Dynamics */}
-        <TabsContent value="dynamics" className="space-y-4">
-          <Card className="glass-card">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Waves className="h-5 w-5 text-primary" />
-                Dynamic Analysis Formulas
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Accordion type="multiple" className="space-y-2">
-                <AccordionItem value="sdof">
-                  <AccordionTrigger className="text-sm font-medium">SDOF Systems</AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    <Formula
-                      name="Equation of Motion"
-                      formula="mẍ + cẋ + kx = F(t)"
-                      latex="m\ddot{x} + c\dot{x} + kx = F(t)"
-                      description="Governing equation for single-degree-of-freedom system."
-                      variables={[
-                        { symbol: "m", meaning: "Mass" },
-                        { symbol: "c", meaning: "Damping coefficient" },
-                        { symbol: "k", meaning: "Stiffness" }
-                      ]}
-                      usedIn={["Dynamic"]}
-                      category="core"
-                    />
-                    <Formula
-                      name="Natural Frequency"
-                      formula="ωn = √(k/m),  fn = ωn / (2π)"
-                      latex="\omega_n = \sqrt{\frac{k}{m}}, \quad f_n = \frac{\omega_n}{2\pi}"
-                      description="Undamped natural circular and cyclic frequencies."
-                      usedIn={["Dynamic"]}
-                      category="core"
-                    />
-                    <Formula
-                      name="Damping Ratio"
-                      formula="ζ = c / (2√(km)) = c / (2mωn)"
-                      latex="\zeta = \frac{c}{2\sqrt{km}} = \frac{c}{2m\omega_n}"
-                      description="Ratio of actual to critical damping."
-                      usedIn={["Dynamic"]}
-                      category="core"
-                    />
-                    <Formula
-                      name="Damped Frequency"
-                      formula="ωd = ωn × √(1 - ζ²)"
-                      latex="\omega_d = \omega_n \sqrt{1 - \zeta^2}"
-                      description="Natural frequency with damping (ζ < 1)."
-                      usedIn={["Dynamic"]}
-                      category="core"
-                    />
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="modular-system-models">
-                  <AccordionTrigger className="text-sm font-medium">Modular System Models</AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    <Formula
-                      name="Effective Modal System"
-                      formula="m_eff = Gamma_m m; k_eff = Gamma_k k; c_eff = Gamma_c c"
-                      latex="m_{eff}=\Gamma_m m,\quad k_{eff}=\Gamma_k k,\quad c_{eff}=\Gamma_c c"
-                      description="Transforms base sliders into model-consistent effective properties using the selected system schematic, support model, excitation type, isolation layer, and participating modes."
-                      variables={[
-                        { symbol: "Gamma_m", meaning: "Mass participation modifier" },
-                        { symbol: "Gamma_k", meaning: "System/support stiffness modifier" },
-                        { symbol: "Gamma_c", meaning: "Damping/excitation/isolation modifier" }
-                      ]}
-                      usedIn={["Library"]}
-                      category="advanced"
-                    />
-                    <Formula
-                      name="Mode Participation Expansion"
-                      formula="x(t) ~= sum Gamma_i phi_i q_i(t)"
-                      latex="x(t) \approx \sum_i \Gamma_i \phi_i q_i(t)"
-                      description="Approximates a bridge, equipment mount, or building as one or more participating modal coordinates."
-                      variables={[
-                        { symbol: "Gamma_i", meaning: "Participation factor for mode i" },
-                        { symbol: "phi_i", meaning: "Mode shape" },
-                        { symbol: "q_i(t)", meaning: "Modal coordinate" }
-                      ]}
-                      usedIn={["Library"]}
-                      category="advanced"
-                    />
-                    <Formula
-                      name="Support Modularity"
-                      formula="k_eff = alpha_support * k_model; c_eff = eta_support * c_model"
-                      latex="k_{eff}=\alpha_{support}k_{model},\quad c_{eff}=\eta_{support}c_{model}"
-                      description="Fixed, flexible, and isolated supports modify stiffness and damping before response is calculated."
-                      variables={[
-                        { symbol: "alpha_support", meaning: "Support stiffness factor" },
-                        { symbol: "eta_support", meaning: "Support damping factor" }
-                      ]}
-                      usedIn={["Library"]}
-                      category="advanced"
-                    />
-                    <Formula
-                      name="Excitation Mapping"
-                      formula="F_eff(t) = alpha_excitation * F0 * sin(Omega t)"
-                      latex="F_{eff}(t)=\alpha_{excitation}F_0\sin(\Omega t)"
-                      description="Harmonic, impulse, wind, and seismic selections adjust the effective forcing used by the workbench."
-                      variables={[
-                        { symbol: "alpha_excitation", meaning: "Excitation family load modifier" },
-                        { symbol: "Omega", meaning: "Forcing circular frequency" }
-                      ]}
-                      usedIn={["Random", "Library"]}
-                      category="advanced"
-                    />
-                    <Formula
-                      name="Dynamic Scenario Comparison"
-                      formula="case_i = {model, support, excitation, m_eff, k_eff, c_eff, DAF, x_max, beta, Pf}"
-                      description="Saved dynamic cases preserve assumptions, effective properties, response metrics, and reliability outputs for comparison and report export."
-                      variables={[
-                        { symbol: "case_i", meaning: "Saved dynamic design case" },
-                        { symbol: "x_max", meaning: "Maximum displacement response" },
-                        { symbol: "Pf", meaning: "Probability of displacement limit failure" }
-                      ]}
-                      usedIn={["Reports", "Library"]}
-                      category="advanced"
-                    />
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="frequency-response">
-                  <AccordionTrigger className="text-sm font-medium">Frequency Response</AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    <Formula
-                      name="Transfer Function Magnitude"
-                      formula="|H(ω)|² = 1 / [(1-r²)² + (2ζr)²]"
-                      latex="|H(\omega)|^2 = \frac{1}{(1 - r^2)^2 + (2\zeta r)^2}"
-                      description="Amplification factor squared, where r = ω/ωn."
-                      variables={[
-                        { symbol: "r", meaning: "Frequency ratio ω/ωn" },
-                        { symbol: "ζ", meaning: "Damping ratio" }
-                      ]}
-                      usedIn={["Dynamic"]}
-                      category="core"
-                    />
-                    <Formula
-                      name="Resonant Amplification"
-                      formula="|H(ωn)| ≈ 1 / (2ζ)"
-                      latex="|H(\omega_n)| \approx \frac{1}{2\zeta}"
-                      description="Peak response at resonance (lightly damped)."
-                      usedIn={["Dynamic"]}
-                      category="core"
-                    />
-                    <Formula
-                      name="Phase Angle"
-                      formula="φ = atan(2ζr / (1 - r²))"
-                      latex="\varphi = \arctan\!\left(\frac{2\zeta r}{1 - r^2}\right)"
-                      description="Phase lag between input and response."
-                      usedIn={["Dynamic"]}
-                      category="advanced"
-                    />
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="random-vibration">
-                  <AccordionTrigger className="text-sm font-medium">Random Vibration</AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    <Formula
-                      name="Output PSD"
-                      formula="Sy(f) = |H(f)|² × Sx(f)"
-                      latex="S_y(f) = |H(f)|^2 \, S_x(f)"
-                      description="Response spectrum equals transfer function times input spectrum."
-                      usedIn={["Dynamic"]}
-                      category="advanced"
-                    />
-                    <Formula
-                      name="Response Variance"
-                      formula="σy² = ∫ Sy(f) df"
-                      latex="\sigma_y^2 = \int_0^\infty S_y(f)\,df"
-                      description="Total variance from area under response PSD."
-                      usedIn={["Dynamic"]}
-                      category="advanced"
-                    />
-                    <Formula
-                      name="RMS Response"
-                      formula="yrms = √(σy²)"
-                      description="Root mean square of random response."
-                      usedIn={["Dynamic"]}
-                      category="advanced"
-                    />
-                    <Formula
-                      name="Peak Factor"
-                      formula="g = √(2 × ln(νT)) + 0.5772 / √(2 × ln(νT))"
-                      description="Relates peak to RMS for Gaussian process."
-                      variables={[
-                        { symbol: "ν", meaning: "Mean zero-crossing rate" },
-                        { symbol: "T", meaning: "Duration" }
-                      ]}
-                      usedIn={["Dynamic"]}
-                      category="advanced"
-                    />
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="spectra">
-                  <AccordionTrigger className="text-sm font-medium">Spectral Models</AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    <Formula
-                      name="Kanai-Tajimi Earthquake"
-                      formula="S(ω) = S₀ × (ωg⁴ + 4ζg²ωg²ω²) / [(ωg² - ω²)² + 4ζg²ωg²ω²]"
-                      description="Filtered white noise model for ground motion."
-                      variables={[
-                        { symbol: "ωg", meaning: "Ground filter frequency" },
-                        { symbol: "ζg", meaning: "Ground damping" },
-                        { symbol: "S₀", meaning: "White noise intensity" }
-                      ]}
-                      usedIn={["Dynamic"]}
-                      category="specialized"
-                    />
-                    <Formula
-                      name="Davenport Wind Spectrum"
-                      formula="S(f) = 4u*²L / (U × (1 + (fL/U)²)^(4/3))"
-                      description="Along-wind turbulence spectrum."
-                      variables={[
-                        { symbol: "u*", meaning: "Friction velocity" },
-                        { symbol: "L", meaning: "Integral length scale" },
-                        { symbol: "U", meaning: "Mean wind speed" }
-                      ]}
-                      usedIn={["Dynamic"]}
-                      category="specialized"
                     />
                   </AccordionContent>
                 </AccordionItem>

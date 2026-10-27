@@ -315,7 +315,7 @@ export const MomentCalculusLibrary = ({ onSendToPf }: MomentCalculusLibraryProps
                   { symbol: "μ_m", meaning: "Mean mass" },
                   { symbol: "c_d", meaning: "Dynamic coupling coefficient" },
                 ]}
-                usedIn={["Dynamic", "Stat Moments"]}
+                usedIn={["Moment Calculus", "Stat Moments"]}
                 category="advanced"
                 reference="Meza (2026) §2.2"
               />
@@ -441,7 +441,7 @@ export const MomentCalculusLibrary = ({ onSendToPf }: MomentCalculusLibraryProps
                   { symbol: "J · n", meaning: "Boundary flux (per area)" },
                   { symbol: "s", meaning: "Volumetric source term" },
                 ]}
-                usedIn={["Static Loads", "Dynamic"]}
+                usedIn={["Moment Calculus"]}
                 category="advanced"
                 reference="Meza (2026) §2.1"
               />
@@ -455,7 +455,7 @@ export const MomentCalculusLibrary = ({ onSendToPf }: MomentCalculusLibraryProps
                   { symbol: "τ", meaning: "Torque" },
                   { symbol: "ω", meaning: "Angular velocity" },
                 ]}
-                usedIn={["Dynamic"]}
+                usedIn={["Moment Calculus"]}
                 category="advanced"
                 reference="Meza (2026) §2.2"
               />
@@ -467,7 +467,7 @@ export const MomentCalculusLibrary = ({ onSendToPf }: MomentCalculusLibraryProps
                   { symbol: "b", meaning: "Damping coefficient [N·s/m]" },
                   { symbol: "ẋ(t)", meaning: "Velocity at time t" },
                 ]}
-                usedIn={["Dynamic"]}
+                usedIn={["Moment Calculus"]}
                 category="advanced"
                 reference="Meza (2026) §5, M-008"
               />
@@ -489,8 +489,8 @@ export const MomentCalculusLibrary = ({ onSendToPf }: MomentCalculusLibraryProps
               <Formula
                 name="Conservation Invariant Check"
                 formula="∫_Ω I dμ = I₀ = constant (steady state)"
-                description="When the load derives from a balance law, verify that the resultant satisfies conservation. For beams: ΣF = 0, ΣM = 0. For dynamics: energy dissipation balances input."
-                usedIn={["Static Loads", "Dynamic"]}
+                description="Check conservation for static beam cases: signed vertical loads balance support reactions, and applied-load moments balance reaction moments and force lever arms about the same reference point."
+                usedIn={["Static Loads", "Support Reactions"]}
                 category="core"
                 reference="Meza (2026) §8.2"
               />
@@ -540,7 +540,7 @@ export const MomentCalculusLibrary = ({ onSendToPf }: MomentCalculusLibraryProps
                 variables={[
                   { symbol: "F(t)", meaning: "Time-varying external force" },
                 ]}
-                usedIn={["Dynamic"]}
+                usedIn={["Moment Calculus"]}
                 category="advanced"
                 reference="Meza (2026) §5, M-006"
               />
