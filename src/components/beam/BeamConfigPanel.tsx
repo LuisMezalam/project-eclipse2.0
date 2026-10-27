@@ -12,6 +12,7 @@ import { CrossSectionDiagram } from "../CrossSectionDiagram";
 import { LoadTypeDiagram } from "../LoadTypeDiagram";
 import { HybridLoadBuilder } from "../HybridLoadBuilder";
 import { ExportButton } from "../ExportButton";
+import { getLoadDirectionSign } from "@/lib/beamAnalysis";
 import type { useBeamAnalysis } from "./useBeamAnalysis";
 import {
   type DistributedForceUnit,
@@ -254,6 +255,7 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
 function SingleLoadControls({ b }: { b: BeamHook }) {
   const du = b.displayUnits;
   const lUnit = du.length.unit;
+  const loadIsUpward = getLoadDirectionSign(b.loadConfig, b.beamLength) < 0;
   const isPointLike = b.loadType === "concentrated" || b.loadType === "moving" || b.loadType === "axle-train" || b.loadType === "torsional" || b.loadType === "harmonic-equivalent";
   const isMomentLike = b.loadType === "moment" || b.loadType === "support-settlement" || b.loadType === "thermal-gradient";
 
@@ -293,13 +295,12 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
           <BeamNumberField
             label="Load Intensity"
             value={b.convertForceToDisplay(b.loadIntensity)}
-            min={0}
             step={0.01}
             className="flex-1"
             onChange={(displayValue) => {
               const value = b.convertForceFromDisplay(displayValue);
               b.setLoadIntensity(value);
-              if (b.ctx.isSynced) b.ctx.setLoadMean(value / 1000);
+              if (b.ctx.isSynced) b.ctx.setLoadMean(Math.abs(value) / 1000);
             }}
           />
           <Select value={(isPointLike || isMomentLike) ? b.forceUnit : b.distributedForceUnit}
@@ -321,8 +322,8 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
       {/* Invert */}
       <div className="flex items-center justify-between py-1">
         <label className="text-xs text-muted-foreground flex items-center gap-1.5"><ArrowDownUp className="h-3.5 w-3.5" /> Invert Load (upward)</label>
-        <Button variant={b.loadInverted ? "default" : "outline"} size="sm" onClick={() => b.setLoadInverted(!b.loadInverted)} className="h-7 px-3 text-xs">
-          {b.loadInverted ? "Inverted ↑" : "Normal ↓"}
+        <Button variant={loadIsUpward ? "default" : "outline"} size="sm" onClick={() => b.setLoadInverted(!b.loadInverted)} className="h-7 px-3 text-xs">
+          {loadIsUpward ? "Inverted ↑" : "Normal ↓"}
         </Button>
       </div>
 
@@ -340,8 +341,8 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
             onChange={b.setForceAngle}
           />
           <p className="text-xs text-muted-foreground">
-            Vertical: P<sub>v</sub> = {(b.loadIntensity * Math.cos(b.forceAngle * Math.PI / 180) * du.force.factor).toFixed(2)} {du.force.unit} |
-            Horizontal: P<sub>h</sub> = {(b.loadIntensity * Math.sin(b.forceAngle * Math.PI / 180) * du.force.factor).toFixed(2)} {du.force.unit}
+            Vertical: P<sub>v</sub> = {(b.loadIntensity * (b.loadInverted ? -1 : 1) * Math.cos(b.forceAngle * Math.PI / 180) * du.force.factor).toFixed(2)} {du.force.unit} |
+            Horizontal: P<sub>h</sub> = {(b.loadIntensity * (b.loadInverted ? -1 : 1) * Math.sin(b.forceAngle * Math.PI / 180) * du.force.factor).toFixed(2)} {du.force.unit}
           </p>
         </div>
       )}

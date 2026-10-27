@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateLaminateBeamProperties, solveBeamResponse, type BeamSupportCondition, type BeamType, type LoadConfig } from "@/lib/beamAnalysis";
+import { calculateLaminateBeamProperties, resolveAnalysisLoadConfig, solveBeamResponse, type BeamSupportCondition, type BeamType, type LoadConfig } from "@/lib/beamAnalysis";
 
 const beamTypes: BeamType[] = [
   "simply-supported", "cantilever", "fixed-fixed", "propped-cantilever", "overhanging",
@@ -40,6 +40,50 @@ function relativeDifference(left: number, right: number) {
 }
 
 describe("hybrid V/M/D diagram audit across beam types", () => {
+  it("reverses V/M/D for every load condition when its signed intensity changes", () => {
+    const loadConditions: LoadConfig[] = [
+      { type: "udl", intensity: 5_000 },
+      { type: "concentrated", intensity: 8_500, position: 0.371, forceAngle: 25 },
+      { type: "triangular", intensity: 900, triStartPosition: 0.11, triEndPosition: 0.82, peakPosition: 0 },
+      { type: "moving", intensity: 7_000, movingStep: 0.42 },
+      { type: "partial-udl", intensity: 1_250, startPosition: 0.17, endPosition: 0.73 },
+      { type: "trapezoidal", intensity: 1_000, startIntensity: 200, endIntensity: 1_100 },
+      { type: "moment", intensity: 2_100, position: 0.63 },
+      { type: "parabolic", intensity: 700 },
+      { type: "parametric", intensity: 2_000, slope: 1_000 },
+      { type: "axle-train", intensity: 6_000, movingStep: 0.47 },
+      { type: "support-settlement", intensity: 1_200, position: 0.5 },
+      { type: "thermal-gradient", intensity: 900, position: 0.5 },
+      { type: "prestress", intensity: 4_000, startPosition: 0.2, endPosition: 0.8 },
+      { type: "patch", intensity: 2_000, startPosition: 0.3, endPosition: 0.7 },
+      { type: "torsional", intensity: 1_500, position: 0.4, forceAngle: 25 },
+      { type: "snow-drift", intensity: 800, triStartPosition: 0.1, triEndPosition: 0.9 },
+      { type: "hydrostatic", intensity: 1_100, triStartPosition: 0.1, triEndPosition: 0.9 },
+      { type: "construction-stage", intensity: 3_000 },
+      { type: "harmonic-equivalent", intensity: 2_500, position: 0.57, forceAngle: 25 },
+    ];
+    const supports: BeamSupportCondition[] = [
+      { position: 0, type: "pin" },
+      { position: 1, type: "roller" },
+    ];
+    const options = { numPoints: 80, includeEventSamples: true, includeExtremaSamples: true };
+
+    for (const load of loadConditions) {
+      const downwardLoad = resolveAnalysisLoadConfig(load, L);
+      const upwardLoad = resolveAnalysisLoadConfig({ ...load, intensity: -load.intensity }, L);
+      const downward = solveBeamResponse("simply-supported", [downwardLoad], L, 200e9, 1e-5, supports, options);
+      const upward = solveBeamResponse("simply-supported", [upwardLoad], L, 200e9, 1e-5, supports, options);
+
+      expect(upward.diagramData, `${load.type}: diagram sample count`).toHaveLength(downward.diagramData.length);
+      for (const [index, point] of downward.diagramData.entries()) {
+        const reversed = upward.diagramData[index];
+        expect(reversed.shear, `${load.type}: V(x)`).toBeCloseTo(-point.shear, 7);
+        expect(reversed.moment, `${load.type}: M(x)`).toBeCloseTo(-point.moment, 7);
+        expect(reversed.deflection, `${load.type}: D(x)`).toBeCloseTo(-point.deflection, 7);
+      }
+    }
+  });
+
   it("reverses hybrid shear, moment, deflection, and reactions when load direction is inverted", () => {
     const downwardLoads: LoadConfig[] = [
       { type: "partial-udl", intensity: 8_000, startPosition: 0.1, endPosition: 0.7 },

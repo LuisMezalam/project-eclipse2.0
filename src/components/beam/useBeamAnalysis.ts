@@ -15,6 +15,7 @@ import {
 } from "@/lib/reliability";
 import { ReportSection } from "@/lib/exportUtils";
 import { validateBeamAnalysis } from "@/lib/beamValidation";
+import { resolveAnalysisLoadConfig } from "@/lib/beamAnalysis";
 import { useSharedParameters } from "@/contexts/SharedParametersContext";
 import {
   type UnitSystem, type ForceUnit, type DistributedForceUnit, type LengthUnit,
@@ -27,33 +28,6 @@ import {
 function resolveAnalysisBeamType(beamType: BeamType): BeamType {
   // The finite-element solver uses the selected support layout directly.
   return beamType;
-}
-
-function resolveAnalysisLoadConfig(load: LoadConfig, beamLength: number): LoadConfig {
-  const pointAt = load.position ?? 0.5;
-  const partial = {
-    startPosition: load.startPosition ?? 0.25,
-    endPosition: load.endPosition ?? 0.75,
-  };
-  const map: Partial<Record<LoadType, LoadConfig>> = {
-    "axle-train": { ...load, type: "moving", intensity: load.intensity * 1.75, movingStep: load.movingStep ?? pointAt },
-    "support-settlement": { ...load, type: "moment", intensity: load.intensity * beamLength * 0.08, position: load.position ?? 1 },
-    "thermal-gradient": { ...load, type: "moment", intensity: load.intensity * beamLength * 0.06, position: load.position ?? 0.5 },
-    prestress: { ...load, type: "partial-udl", intensity: -load.intensity * 0.65, ...partial },
-    patch: { ...load, type: "partial-udl", ...partial },
-    torsional: { ...load, type: "concentrated", intensity: load.intensity * 1.15, position: pointAt },
-    "snow-drift": { ...load, type: "triangular", peakPosition: load.peakPosition ?? 1 },
-    hydrostatic: { ...load, type: "triangular", peakPosition: load.peakPosition ?? 1 },
-    "construction-stage": { ...load, type: "udl", intensity: load.intensity * 1.25 },
-    "harmonic-equivalent": { ...load, type: "concentrated", intensity: load.intensity * 1.4, position: pointAt },
-    parametric: {
-      ...load,
-      type: "trapezoidal",
-      startIntensity: load.startIntensity ?? load.intercept ?? load.intensity,
-      endIntensity: load.endIntensity ?? ((load.slope ?? 0) * beamLength + (load.intercept ?? load.intensity)),
-    },
-  };
-  return map[load.type] ?? load;
 }
 
 export function useBeamAnalysis() {
@@ -102,7 +76,7 @@ export function useBeamAnalysis() {
   useEffect(() => {
     if (ctx.isSynced) {
       setBeamLength(ctx.beamLength);
-      setLoadIntensity(ctx.loadMean * 1000);
+      setLoadIntensity((currentIntensity) => Math.sign(currentIntensity || 1) * ctx.loadMean * 1000);
       setLoadCOV(ctx.loadCoV);
       setYieldStrength(ctx.resistanceMean);
       setStrengthCOV(ctx.resistanceCoV);

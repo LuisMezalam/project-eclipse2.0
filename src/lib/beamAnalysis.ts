@@ -737,6 +737,35 @@ function distributedLoadBounds(load: LoadConfig, beamLength: number): [number, n
   return [0, beamLength];
 }
 
+/** Normalize specialty UI loads to the equivalent load cases used by the solver. */
+export function resolveAnalysisLoadConfig(load: LoadConfig, beamLength: number): LoadConfig {
+  const pointAt = load.position ?? 0.5;
+  const partial = {
+    startPosition: load.startPosition ?? 0.25,
+    endPosition: load.endPosition ?? 0.75,
+  };
+  const intercept = load.intercept ?? Math.abs(load.intensity);
+  const map: Partial<Record<LoadType, LoadConfig>> = {
+    'axle-train': { ...load, type: 'moving', intensity: load.intensity * 1.75, movingStep: load.movingStep ?? pointAt },
+    'support-settlement': { ...load, type: 'moment', intensity: load.intensity * beamLength * 0.08, position: load.position ?? 1 },
+    'thermal-gradient': { ...load, type: 'moment', intensity: load.intensity * beamLength * 0.06, position: load.position ?? 0.5 },
+    prestress: { ...load, type: 'partial-udl', intensity: -load.intensity * 0.65, ...partial },
+    patch: { ...load, type: 'partial-udl', ...partial },
+    torsional: { ...load, type: 'concentrated', intensity: load.intensity * 1.15, position: pointAt },
+    'snow-drift': { ...load, type: 'triangular', peakPosition: load.peakPosition ?? 1 },
+    hydrostatic: { ...load, type: 'triangular', peakPosition: load.peakPosition ?? 1 },
+    'construction-stage': { ...load, type: 'udl', intensity: load.intensity * 1.25 },
+    'harmonic-equivalent': { ...load, type: 'concentrated', intensity: load.intensity * 1.4, position: pointAt },
+    parametric: {
+      ...load,
+      type: 'trapezoidal',
+      startIntensity: intercept,
+      endIntensity: (load.slope ?? 0) * beamLength + intercept,
+    },
+  };
+  return map[load.type] ?? load;
+}
+
 /** Load intensity is positive downward and remains in base SI units. */
 function distributedIntensityAt(load: LoadConfig, x: number, beamLength: number): number {
   const sign = load.inverted ? -1 : 1;
@@ -755,22 +784,21 @@ function distributedIntensityAt(load: LoadConfig, x: number, beamLength: number)
       const ratio = (x - start) / (end - start);
       return intensity * (load.peakPosition === 1 ? ratio : 1 - ratio);
     }
-    case 'trapezoidal':
-    case 'parametric': {
-      // The endpoint values define the load shape; the main intensity input
-      // still controls its overall sign, just as it does for other load types.
+    case 'trapezoidal': {
+      // Endpoint values define the shape; the main intensity sign controls
+      // the direction, consistently with the other load types.
       const direction = sign * Math.sign(load.intensity);
       const defaultMagnitude = Math.abs(load.intensity);
-      const intercept = load.intercept ?? defaultMagnitude;
-      const startShape = load.type === 'trapezoidal'
-        ? (load.startIntensity ?? defaultMagnitude)
-        : (load.startIntensity ?? intercept);
-      const endShape = load.type === 'trapezoidal'
-        ? (load.endIntensity ?? defaultMagnitude * 0.5)
-        : (load.endIntensity ?? ((load.slope ?? 0) * beamLength + intercept));
+      const startShape = load.startIntensity ?? defaultMagnitude;
+      const endShape = load.endIntensity ?? defaultMagnitude * 0.5;
       const startIntensity = startShape * direction;
       const endIntensity = endShape * direction;
       return startIntensity + (endIntensity - startIntensity) * x / beamLength;
+    }
+    case 'parametric': {
+      const direction = sign * Math.sign(load.intensity);
+      const intercept = load.intercept ?? Math.abs(load.intensity);
+      return ((load.slope ?? 0) * x + intercept) * direction;
     }
     case 'parabolic':
       return 4 * intensity * x * (beamLength - x) / (beamLength * beamLength);
@@ -791,16 +819,13 @@ export function getLoadDirectionSign(load: LoadConfig, beamLength = 1, positionR
   if (load.type === 'prestress') {
     // Prestress is modeled as an equivalent uplift load.
     representedIntensity = -load.intensity;
-  } else if (load.type === 'trapezoidal' || load.type === 'parametric') {
+  } else if (load.type === 'trapezoidal') {
     const defaultMagnitude = Math.abs(load.intensity);
-    const intercept = load.intercept ?? defaultMagnitude;
-    const startIntensity = load.type === 'trapezoidal'
-      ? (load.startIntensity ?? defaultMagnitude)
-      : (load.startIntensity ?? intercept);
-    const endIntensity = load.type === 'trapezoidal'
-      ? (load.endIntensity ?? defaultMagnitude * 0.5)
-      : (load.endIntensity ?? ((load.slope ?? 0) * beamLength + intercept));
+    const startIntensity = load.startIntensity ?? defaultMagnitude;
+    const endIntensity = load.endIntensity ?? defaultMagnitude * 0.5;
     representedIntensity = startIntensity + (endIntensity - startIntensity) * positionRatio;
+  } else if (load.type === 'parametric') {
+    representedIntensity = (load.slope ?? 0) * (positionRatio * beamLength) + (load.intercept ?? Math.abs(load.intensity));
   }
 
   if ((load.type === 'concentrated' || load.type === 'moving') && load.forceAngle) {
