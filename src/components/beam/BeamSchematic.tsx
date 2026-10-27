@@ -124,9 +124,9 @@ export function BeamSchematic({
   };
 
   return (
-    <div className="glass-card p-6">
-      <h3 className="text-lg font-semibold mb-4 text-foreground">Beam Schematic</h3>
-      <div className="relative h-36 bg-muted/20 rounded-lg overflow-hidden">
+    <div className="glass-card p-4">
+      <h3 className="text-base font-semibold mb-3 text-foreground">Beam Schematic</h3>
+      <div className="relative h-28 sm:h-32 bg-muted/20 rounded-lg overflow-hidden">
         {/* Beam bar */}
         <div className="absolute top-1/2 left-8 right-8 h-4 bg-primary/60 -translate-y-1/2 rounded" />
         {selfWeightIncluded && (

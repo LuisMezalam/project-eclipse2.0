@@ -4,6 +4,8 @@
  */
 
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine, ReferenceArea } from "recharts";
+import { ChevronDown } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { BeamNumberField } from "./BeamNumberField";
 import { chartTooltipStyle, loadColors } from "./beamTypes";
 import type { LoadType, InfluencePoint } from "@/lib/reliability";
@@ -114,10 +116,17 @@ export function InfluenceLines({
   };
 
   return (
-    <div className="glass-card p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-foreground">Influence Lines</h3>
-        <div className="flex items-center gap-3">
+    <Collapsible className="glass-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-foreground">Influence lines</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            At x = {xm} {lu}
+            <span className="ml-3 text-chart-posterior">V ≈ {displayEffects.shear.toFixed(2)} {du.force.unit}</span>
+            <span className="ml-3 text-primary">M ≈ {displayEffects.moment.toFixed(2)} {du.moment.unit}</span>
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <BeamNumberField
             label="Measurement point"
             value={influenceMeasurePoint * displayBeamLength}
@@ -125,12 +134,18 @@ export function InfluenceLines({
             min={0.05 * displayBeamLength}
             max={0.95 * displayBeamLength}
             step={0.01}
-            className="w-44"
+            className="w-40"
             onChange={(value) => setInfluenceMeasurePoint(value / displayBeamLength)}
           />
+          <CollapsibleTrigger asChild>
+            <button type="button" className="group inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground">
+              Charts & breakdown
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
+            </button>
+          </CollapsibleTrigger>
         </div>
       </div>
-
+      <CollapsibleContent className="mt-4 space-y-4 border-t border-border/50 pt-4">
       <div className="grid md:grid-cols-3 gap-6">
         {/* Shear IL */}
         <div>
@@ -249,12 +264,6 @@ export function InfluenceLines({
           <div className="w-4 h-0.5" style={{ backgroundColor: "hsl(0 84% 60%)", borderTop: "2px dashed" }} />
           <span>Measurement point</span>
         </div>
-        {loadMarkers.length > 0 && (
-          <div className="ml-auto flex gap-4">
-            <span className="text-chart-posterior">V at x<sub>m</sub> ≈ {displayEffects.shear.toFixed(2)} {du.force.unit}</span>
-            <span className="text-primary">M at x<sub>m</sub> ≈ {displayEffects.moment.toFixed(2)} {du.moment.unit}</span>
-          </div>
-        )}
       </div>
       <p className="mt-2 text-xs text-muted-foreground/70">
         Influence lines show how a unit load at different positions affects shear, moment, and deflection at the measurement point.
@@ -314,6 +323,7 @@ export function InfluenceLines({
           </p>
         </div>
       )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

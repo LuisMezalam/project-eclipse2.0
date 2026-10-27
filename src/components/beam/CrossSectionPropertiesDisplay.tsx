@@ -1,6 +1,4 @@
-/**
- * Cross-section properties summary cards.
- */
+/** Compact summary of calculated cross-section properties. */
 
 import type { CrossSectionProperties, CrossSectionType } from "@/lib/reliability";
 import { getCrossSectionLabel } from "./beamTypes";
@@ -28,33 +26,34 @@ export function CrossSectionPropertiesDisplay({ crossSectionType, sectionProps, 
     radius: { factor: 100, unit: "cm" },
   };
 
+  const title = laminate
+    ? "Laminate gross properties"
+    : composite
+      ? "Primary beam properties"
+      : "Cross-section properties";
+  const metrics = [
+    { label: "Area A", value: `${(sectionProps.area * du.area.factor).toFixed(2)} ${du.area.unit}` },
+    { label: "Moment of inertia I", value: `${(sectionProps.momentOfInertia * du.inertia.factor).toFixed(2)} ${du.inertia.unit}`, accent: "text-primary" },
+    { label: "Polar moment J", value: `${(sectionProps.polarMomentOfInertia * du.inertia.factor).toFixed(2)} ${du.inertia.unit}`, accent: "text-accent" },
+    { label: "Section modulus S", value: `${(sectionProps.sectionModulus * du.sectionMod.factor).toFixed(2)} ${du.sectionMod.unit}` },
+    { label: "Radius of gyration r", value: `${(sectionProps.radiusOfGyration * du.radius.factor).toFixed(2)} ${du.radius.unit}` },
+  ];
+
   return (
-    <div className="glass-card p-6">
-      <h3 className="text-lg font-semibold mb-4 text-foreground">
-        {laminate ? "Laminate Gross Section Properties" : composite ? "Primary Beam Section Properties" : "Cross-Section Properties"} - {getCrossSectionLabel(crossSectionType)}
+    <section className="glass-card p-3 md:p-4" aria-label={`${title} - ${getCrossSectionLabel(crossSectionType)}`}>
+      <h3 className="mb-2 text-sm font-semibold text-foreground">
+        {title} <span className="font-normal text-muted-foreground">· {getCrossSectionLabel(crossSectionType)}</span>
       </h3>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="p-3 rounded-lg bg-muted/30">
-          <div className="text-xs text-muted-foreground">Area A</div>
-          <div className="text-lg font-bold font-mono text-foreground">{(sectionProps.area * du.area.factor).toFixed(2)} {du.area.unit}</div>
-        </div>
-        <div className="p-3 rounded-lg bg-primary/10 border border-primary/30">
-          <div className="text-xs text-muted-foreground">Moment of Inertia I</div>
-          <div className="text-lg font-bold font-mono text-primary">{(sectionProps.momentOfInertia * du.inertia.factor).toFixed(2)} {du.inertia.unit}</div>
-        </div>
-        <div className="p-3 rounded-lg bg-accent/10 border border-accent/30">
-          <div className="text-xs text-muted-foreground">Polar Moment J</div>
-          <div className="text-lg font-bold font-mono text-accent">{(sectionProps.polarMomentOfInertia * du.inertia.factor).toFixed(2)} {du.inertia.unit}</div>
-        </div>
-        <div className="p-3 rounded-lg bg-muted/30">
-          <div className="text-xs text-muted-foreground">Section Modulus S</div>
-          <div className="text-lg font-bold font-mono text-foreground">{(sectionProps.sectionModulus * du.sectionMod.factor).toFixed(2)} {du.sectionMod.unit}</div>
-        </div>
-        <div className="p-3 rounded-lg bg-muted/30">
-          <div className="text-xs text-muted-foreground">Radius of Gyration r</div>
-          <div className="text-lg font-bold font-mono text-foreground">{(sectionProps.radiusOfGyration * du.radius.factor).toFixed(2)} {du.radius.unit}</div>
-        </div>
-      </div>
-    </div>
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+        {metrics.map((metric) => (
+          <div key={metric.label} className="min-w-0 rounded-md bg-muted/25 px-3 py-2">
+            <dt className="text-[10px] leading-tight text-muted-foreground">{metric.label}</dt>
+            <dd className={`mt-1 truncate font-mono text-sm font-semibold text-foreground ${metric.accent ?? ""}`} title={metric.value}>
+              {metric.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }

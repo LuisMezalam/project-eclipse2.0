@@ -25,7 +25,7 @@ export function StaticBeamAnalysis() {
     : (b.beamResult.minBendingMoment ?? 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <BeamConfigPanel b={b} />
       <BeamCapabilityPanel beamType={b.beamType} loadType={b.loadType} />
       <BeamValidationPanel validation={b.validation} supportFallback={b.supportFallback} />

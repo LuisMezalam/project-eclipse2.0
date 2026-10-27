@@ -29,10 +29,10 @@ interface BeamConfigPanelProps {
 
 export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
   return (
-    <div className="glass-card p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-semibold text-foreground">Static Beam Configuration</h3>
-        <div className="flex items-center gap-4">
+    <div className="glass-card p-4 md:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h3 className="text-lg font-semibold text-foreground">Static Beam Configuration</h3>
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
           <ExportButton getReportData={b.getBeamReportData} getCSVData={b.getBeamCSVData} filename="beam_analysis" />
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Units:</span>
@@ -126,10 +126,10 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid lg:grid-cols-2 gap-4 md:gap-6">
         {/* Left column: beam + load config */}
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm text-muted-foreground mb-2 block">Beam Type</label>
               <Select value={b.beamType} onValueChange={(v) => b.setBeamType(v as BeamType)}>
@@ -166,7 +166,7 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
           {b.loadMode === "single" ? (
             <SingleLoadControls b={b} />
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               <HybridLoadBuilder
                 loads={b.hybridLoads}
                 onLoadsChange={b.setHybridLoads}
@@ -189,7 +189,7 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
         </div>
 
         {/* Right column: cross-section */}
-        <div className="space-y-4">
+        <div className="space-y-3">
           {b.beamType === "composite" && (
             <div>
               <label className="text-sm text-muted-foreground mb-2 block">Composite model</label>
@@ -671,10 +671,10 @@ function CrossSectionControls({ b }: { b: BeamHook }) {
       </div>
 
       {b.crossSectionType === "rectangular" && (
-        <>
+        <div className="grid grid-cols-2 gap-3">
           <BeamNumberField label="Width b" value={b.sectionWidth * df} unit={dUnit} min={widthMin} step={dimensionStep} onChange={(v) => b.setSectionWidth(b.dimToInternal(v))} />
           <BeamNumberField label="Height h" value={b.sectionHeight * df} unit={dUnit} min={heightMin} step={dimensionStep} onChange={(v) => b.setSectionHeight(b.dimToInternal(v))} />
-        </>
+        </div>
       )}
       {b.crossSectionType === "circular" && (
         <BeamNumberField label="Diameter d" value={b.sectionDiameter * df} unit={dUnit} min={widthMin} step={dimensionStep} onChange={(v) => b.setSectionDiameter(b.dimToInternal(v))} />
@@ -714,7 +714,7 @@ function CrossSectionControls({ b }: { b: BeamHook }) {
         </>
       )}
       {b.crossSectionType === "hollow-circular" && (
-        <>
+        <div className="grid grid-cols-2 gap-3">
           <BeamNumberField
             label="Outer diameter"
             value={b.sectionDiameter * df}
@@ -728,10 +728,11 @@ function CrossSectionControls({ b }: { b: BeamHook }) {
             }}
           />
           <BeamNumberField label="Inner diameter" value={b.innerDiameter * df} unit={dUnit} min={innerWidthMin} max={b.sectionDiameter * df - (metric ? 10 : 0.25)} step={dimensionStep} onChange={(v) => b.setInnerDiameter(b.dimToInternal(v))} />
-        </>
+        </div>
       )}
       {b.crossSectionType === "i-beam" && (
         <>
+          <div className="grid grid-cols-2 gap-3">
           <BeamNumberField
             label="Total height"
             value={b.sectionHeight * df}
@@ -756,6 +757,7 @@ function CrossSectionControls({ b }: { b: BeamHook }) {
               if (b.webThickness * df > maxWebThickness) b.setWebThickness(b.dimToInternal(Math.max(metric ? 5 : 0.2, maxWebThickness)));
             }}
           />
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <BeamNumberField label="Flange thickness" value={b.flangeThickness * df} unit={dUnit} min={metric ? 5 : 0.2} max={b.sectionHeight * df / 2 - (metric ? 5 : 0.2)} step={metric ? 1 : 0.05} onChange={(v) => b.setFlangeThickness(b.dimToInternal(v))} />
             <BeamNumberField label="Web thickness" value={b.webThickness * df} unit={dUnit} min={metric ? 5 : 0.2} max={b.flangeWidth * df - (metric ? 5 : 0.2)} step={metric ? 1 : 0.05} onChange={(v) => b.setWebThickness(b.dimToInternal(v))} />
@@ -763,35 +765,37 @@ function CrossSectionControls({ b }: { b: BeamHook }) {
         </>
       )}
 
-      <BeamNumberField
-        label={b.beamType === "composite" ? "Primary beam elastic modulus E₁" : "Elastic modulus E"}
-        value={b.elasticModulus * (b.isImperial ? 145.0377 : 1)}
-        unit={b.isImperial ? "ksi" : "GPa"}
-        min={1}
-        step={0.1}
-        precision={2}
-        onChange={(value) => b.setElasticModulus(value / (b.isImperial ? 145.0377 : 1))}
-      />
+      <div className="grid grid-cols-2 gap-3">
+        <BeamNumberField
+          label={b.beamType === "composite" ? "Primary beam elastic modulus E₁" : "Elastic modulus E"}
+          value={b.elasticModulus * (b.isImperial ? 145.0377 : 1)}
+          unit={b.isImperial ? "ksi" : "GPa"}
+          min={1}
+          step={0.1}
+          precision={2}
+          onChange={(value) => b.setElasticModulus(value / (b.isImperial ? 145.0377 : 1))}
+        />
 
-      <BeamNumberField
-        label={b.beamType === "composite" ? <>Primary beam strength limit σ<sub>y,1</sub></> : <>Yield Strength σ<sub>y</sub></>}
-        value={b.yieldStrength * du.yieldFactor}
-        unit={du.yieldUnit}
-        min={1}
-        step={1}
-        onChange={(displayValue) => {
-          const value = displayValue / du.yieldFactor;
-          b.setYieldStrength(value);
-          if (b.ctx.isSynced) b.ctx.setResistanceMean(value);
-        }}
-      />
+        <BeamNumberField
+          label={b.beamType === "composite" ? <>Primary beam strength limit σ<sub>y,1</sub></> : <>Yield Strength σ<sub>y</sub></>}
+          value={b.yieldStrength * du.yieldFactor}
+          unit={du.yieldUnit}
+          min={1}
+          step={1}
+          onChange={(displayValue) => {
+            const value = displayValue / du.yieldFactor;
+            b.setYieldStrength(value);
+            if (b.ctx.isSynced) b.ctx.setResistanceMean(value);
+          }}
+        />
+      </div>
 
       <div className="grid grid-cols-2 gap-4">
         <BeamNumberField label="Strength COV" value={b.strengthCOV * 100} unit="%" min={0} step={0.1} onChange={(v) => { const cov = v / 100; b.setStrengthCOV(cov); if (b.ctx.isSynced) b.ctx.setResistanceCoV(cov); }} />
         <BeamNumberField label="Load COV" value={b.loadCOV * 100} unit="%" min={0} step={0.1} onChange={(v) => { const cov = v / 100; b.setLoadCOV(cov); if (b.ctx.isSynced) b.ctx.setLoadVariance(Math.pow(cov * b.ctx.loadMean, 2)); }} />
       </div>
 
-      <div className="mt-4 pt-4 border-t border-border/30">
+      <div className="mt-2 pt-2 border-t border-border/30">
         <CrossSectionDiagram type={b.crossSectionType} width={b.sectionWidth} height={b.sectionHeight}
           diameter={b.sectionDiameter} innerWidth={b.innerWidth} innerHeight={b.innerHeight}
           innerDiameter={b.innerDiameter} flangeWidth={b.flangeWidth} flangeThickness={b.flangeThickness}

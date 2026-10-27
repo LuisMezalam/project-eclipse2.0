@@ -44,6 +44,7 @@ const visibleTabIds = new Set([
 function IndexContent() {
   const ctx = useSharedParameters();
   const activeTab = visibleTabIds.has(ctx.activeTab) ? ctx.activeTab : "reliability";
+  const compactStaticHeader = activeTab === "static";
 
   useEffect(() => {
     if (ctx.activeTab !== activeTab) ctx.setActiveTab(activeTab);
@@ -69,16 +70,16 @@ function IndexContent() {
       {/* Hero Section */}
       <header className="relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,hsl(199_89%_48%/0.15),transparent_50%)]" />
-        <div className="container mx-auto px-4 md:px-6 py-8 md:py-12 relative">
+        <div className={`container mx-auto px-4 md:px-6 relative ${compactStaticHeader ? "py-3 md:py-4" : "py-8 md:py-12"}`}>
           <div className="absolute top-4 right-4 md:top-6 md:right-6">
             <ThemeToggle />
           </div>
           <div className="max-w-4xl mx-auto text-center animate-fade-in">
-            <h1 className="text-3xl md:text-5xl font-bold text-foreground mb-2 md:mb-3 tracking-tight">
-              Structural Reliability
-              <span className="block text-primary mt-1 md:mt-2">Analysis System</span>
+            <h1 className={`font-bold text-foreground tracking-tight ${compactStaticHeader ? "text-xl md:text-3xl mb-1" : "text-3xl md:text-5xl mb-2 md:mb-3"}`}>
+              Structural Reliability{" "}
+              <span className={`${compactStaticHeader ? "inline" : "block mt-1 md:mt-2"} text-primary`}>Analysis System</span>
             </h1>
-            <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+            <p className={`text-base md:text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed ${compactStaticHeader ? "hidden" : ""}`}>
               Interactive probability of failure prediction using Bayesian methods and Unified Statistical Moment Calculus.
             </p>
           </div>
@@ -264,9 +265,9 @@ function IndexContent() {
 
           {/* Static Analysis Tab */}
           <TabsContent value="static" className="animate-fade-in">
-            <div className="text-center mb-6 max-w-3xl mx-auto">
-              <h2 className="text-xl md:text-2xl font-semibold text-foreground mb-2">Static Beam Analysis</h2>
-              <p className="text-sm text-muted-foreground">
+            <div className={`text-center max-w-3xl mx-auto ${compactStaticHeader ? "mb-3" : "mb-6"}`}>
+              <h2 className={`font-semibold text-foreground ${compactStaticHeader ? "text-lg mb-1" : "text-xl md:text-2xl mb-2"}`}>Static Beam Analysis</h2>
+              <p className={`text-muted-foreground ${compactStaticHeader ? "text-xs" : "text-sm"}`}>
                 Rigidized moment equivalence with influence lines and envelope diagrams for moving loads.
               </p>
               {ctx.isSynced && (
@@ -275,7 +276,19 @@ function IndexContent() {
                 </div>
               )}
             </div>
-            <FormulaReferencePanel tabId="static" />
+            <Collapsible className="mx-auto mb-4 max-w-6xl" defaultOpen={false}>
+              <div className="rounded-xl border border-border/60 bg-card/60 px-4 py-2">
+                <CollapsibleTrigger asChild>
+                  <button type="button" className="group flex w-full items-center justify-between gap-3 text-left text-sm font-medium text-foreground">
+                    <span>Method map, formulas, and analysis checks</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-3">
+                  <FormulaReferencePanel tabId="static" className="mb-0" />
+                </CollapsibleContent>
+              </div>
+            </Collapsible>
             <StaticBeamAnalysis />
           </TabsContent>
 
