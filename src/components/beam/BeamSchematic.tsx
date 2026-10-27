@@ -3,6 +3,7 @@
  */
 
 import type { BeamType, LoadConfig, LoadType } from "@/lib/reliability";
+import { getLoadDirectionSign } from "@/lib/beamAnalysis";
 import { Support, LengthUnit, getBeamTypeLabel, getLoadTypeLabel, loadColors } from "./beamTypes";
 
 interface BeamSchematicProps {
@@ -58,53 +59,64 @@ export function BeamSchematic({
     const start = toPct(load.startPosition ?? 0.25);
     const end = toPct(load.endPosition ?? 0.75);
     const yOffset = index * 5;
-    const distributedTypes: LoadType[] = ["udl", "construction-stage", "prestress"];
+    const inverted = getLoadDirectionSign(load, beamLength) < 0;
+    const sourceY = inverted ? 82 - yOffset : 18 + yOffset;
+    const contactY = inverted ? 56 : 44;
+    const arrowHeadOffset = inverted ? 5 : -5;
+    const makeLoadArrow = (x: number) =>
+      `M ${x} ${sourceY} V ${contactY} l -3 ${arrowHeadOffset} M ${x} ${contactY} l 3 ${arrowHeadOffset}`;
+    const distributedTypes: LoadType[] = ["udl", "construction-stage", "prestress", "trapezoidal", "parabolic", "parametric"];
     const partialTypes: LoadType[] = ["partial-udl", "patch"];
     const triangularTypes: LoadType[] = ["triangular", "snow-drift", "hydrostatic"];
 
     if (distributedTypes.includes(load.type)) {
       return (
         <g key={`hybrid-${index}`} opacity={0.9}>
-          <line x1={`${beamLeft}%`} y1={18 + yOffset} x2={`${beamRight}%`} y2={18 + yOffset} stroke={color} strokeWidth="2" />
+          <line x1={`${beamLeft}%`} y1={sourceY} x2={`${beamRight}%`} y2={sourceY} stroke={color} strokeWidth="2" />
           {Array.from({ length: 8 }).map((_, i) => {
             const x = beamLeft + ((i + 0.5) / 8) * (beamRight - beamLeft);
-            return <path key={i} d={`M ${x} ${18 + yOffset} V 44 l -3 -5 M ${x} 44 l 3 -5`} stroke={color} strokeWidth="1.6" fill="none" />;
+            return <path key={i} d={makeLoadArrow(x)} stroke={color} strokeWidth="1.6" fill="none" />;
           })}
         </g>
       );
     }
     if (partialTypes.includes(load.type)) {
+      const bandY = inverted ? contactY : 14 + yOffset;
       return (
         <g key={`hybrid-${index}`} opacity={0.9}>
-          <rect x={`${start}%`} y={14 + yOffset} width={`${end - start}%`} height="30" fill={color} opacity="0.12" />
-          <line x1={`${start}%`} y1={16 + yOffset} x2={`${end}%`} y2={16 + yOffset} stroke={color} strokeWidth="2" />
+          <rect x={`${start}%`} y={bandY} width={`${end - start}%`} height="30" fill={color} opacity="0.12" />
+          <line x1={`${start}%`} y1={sourceY} x2={`${end}%`} y2={sourceY} stroke={color} strokeWidth="2" />
           {Array.from({ length: 4 }).map((_, i) => {
             const x = start + ((i + 0.5) / 4) * (end - start);
-            return <path key={i} d={`M ${x} ${16 + yOffset} V 44 l -3 -5 M ${x} 44 l 3 -5`} stroke={color} strokeWidth="1.5" fill="none" />;
+            return <path key={i} d={makeLoadArrow(x)} stroke={color} strokeWidth="1.5" fill="none" />;
           })}
         </g>
       );
     }
     if (triangularTypes.includes(load.type)) {
-      const points = (load.peakPosition ?? 0) === 0 ? `${beamLeft},12 ${beamRight},44 ${beamLeft},44` : `${beamLeft},44 ${beamRight},12 ${beamRight},44`;
+      const peakY = inverted ? 88 : 12;
+      const baseY = inverted ? contactY : 44;
+      const points = (load.peakPosition ?? 0) === 0
+        ? `${beamLeft},${peakY} ${beamRight},${baseY} ${beamLeft},${baseY}`
+        : `${beamLeft},${baseY} ${beamRight},${peakY} ${beamRight},${baseY}`;
       return <polygon key={`hybrid-${index}`} points={points} fill={color} opacity="0.18" stroke={color} strokeWidth="1.5" />;
     }
     if (load.type === "moment" || load.type === "support-settlement" || load.type === "thermal-gradient") {
       return (
-        <g key={`hybrid-${index}`} transform={`translate(${position} 26)`}>
-          <path d="M -8 6 A 10 10 0 1 1 8 6" fill="none" stroke={color} strokeWidth="2" />
-          <path d="M 7 -1 L 13 6 L 4 8 Z" fill={color} />
+        <g key={`hybrid-${index}`} transform={`translate(${position} ${inverted ? 74 : 26})`}>
+          <path d={inverted ? "M -8 -6 A 10 10 0 1 0 8 -6" : "M -8 6 A 10 10 0 1 1 8 6"} fill="none" stroke={color} strokeWidth="2" />
+          <path d={inverted ? "M 7 1 L 13 -6 L 4 -8 Z" : "M 7 -1 L 13 6 L 4 8 Z"} fill={color} />
         </g>
       );
     }
     return (
       <g key={`hybrid-${index}`} opacity={0.95}>
-        <path d={`M ${position} ${12 + yOffset} V 44 l -4 -7 M ${position} 44 l 4 -7`} stroke={color} strokeWidth="2" fill="none" />
+        <path d={makeLoadArrow(position)} stroke={color} strokeWidth="2" fill="none" />
         {load.type === "moving" || load.type === "axle-train" ? (
           <>
-            <path d={`M ${beamLeft} ${22 + yOffset} H ${beamRight}`} stroke={color} strokeWidth="0.8" strokeDasharray="2 3" opacity="0.45" />
-            <path d={`M ${position + 3} ${22 + yOffset} h 14 l -4 -3 M ${position + 17} ${22 + yOffset} l -4 3`} stroke={color} strokeWidth="1.4" fill="none" />
-            <text x={position + 5} y={10 + yOffset} fill={color} fontSize="5" fontWeight="bold">L{index + 1}</text>
+            <path d={`M ${beamLeft} ${inverted ? 78 - yOffset : 22 + yOffset} H ${beamRight}`} stroke={color} strokeWidth="0.8" strokeDasharray="2 3" opacity="0.45" />
+            <path d={`M ${position + 3} ${inverted ? 78 - yOffset : 22 + yOffset} h 14 l -4 -3 M ${position + 17} ${inverted ? 78 - yOffset : 22 + yOffset} l -4 3`} stroke={color} strokeWidth="1.4" fill="none" />
+            <text x={position + 5} y={inverted ? 90 - yOffset : 10 + yOffset} fill={color} fontSize="5" fontWeight="bold">L{index + 1}</text>
           </>
         ) : null}
       </g>

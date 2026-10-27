@@ -40,6 +40,33 @@ function relativeDifference(left: number, right: number) {
 }
 
 describe("hybrid V/M/D diagram audit across beam types", () => {
+  it("reverses hybrid shear, moment, deflection, and reactions when load direction is inverted", () => {
+    const downwardLoads: LoadConfig[] = [
+      { type: "partial-udl", intensity: 8_000, startPosition: 0.1, endPosition: 0.7 },
+      { type: "concentrated", intensity: 12_000, position: 0.83 },
+    ];
+    const supports: BeamSupportCondition[] = [
+      { position: 0, type: "pin" },
+      { position: 1, type: "roller" },
+    ];
+    const options = { numPoints: 120, includeEventSamples: true, includeExtremaSamples: true };
+    const downward = solveBeamResponse("simply-supported", downwardLoads, L, 200e9, 1e-5, supports, options);
+    const upward = solveBeamResponse("simply-supported", downwardLoads.map((load) => ({ ...load, inverted: true })), L, 200e9, 1e-5, supports, options);
+
+    expect(upward.diagramData).toHaveLength(downward.diagramData.length);
+    for (const [index, point] of downward.diagramData.entries()) {
+      const reversed = upward.diagramData[index];
+      expect(reversed.x).toBeCloseTo(point.x, 12);
+      expect(reversed.shear).toBeCloseTo(-point.shear, 8);
+      expect(reversed.moment).toBeCloseTo(-point.moment, 8);
+      expect(reversed.deflection).toBeCloseTo(-point.deflection, 8);
+    }
+    for (const [index, reaction] of downward.supportReactions.entries()) {
+      expect(upward.supportReactions[index].vertical).toBeCloseTo(-reaction.vertical, 5);
+      expect(upward.supportReactions[index].moment).toBeCloseTo(-reaction.moment, 5);
+    }
+  });
+
   it("matches hybrid superposition and reported peaks in every beam type", () => {
     for (const beamType of beamTypes) {
       const E = beamType === "composite" ? material.E1 : 200e9;

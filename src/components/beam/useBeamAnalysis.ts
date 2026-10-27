@@ -39,7 +39,7 @@ function resolveAnalysisLoadConfig(load: LoadConfig, beamLength: number): LoadCo
     "axle-train": { ...load, type: "moving", intensity: load.intensity * 1.75, movingStep: load.movingStep ?? pointAt },
     "support-settlement": { ...load, type: "moment", intensity: load.intensity * beamLength * 0.08, position: load.position ?? 1 },
     "thermal-gradient": { ...load, type: "moment", intensity: load.intensity * beamLength * 0.06, position: load.position ?? 0.5 },
-    prestress: { ...load, type: "partial-udl", intensity: -Math.abs(load.intensity) * 0.65, ...partial },
+    prestress: { ...load, type: "partial-udl", intensity: -load.intensity * 0.65, ...partial },
     patch: { ...load, type: "partial-udl", ...partial },
     torsional: { ...load, type: "concentrated", intensity: load.intensity * 1.15, position: pointAt },
     "snow-drift": { ...load, type: "triangular", peakPosition: load.peakPosition ?? 1 },

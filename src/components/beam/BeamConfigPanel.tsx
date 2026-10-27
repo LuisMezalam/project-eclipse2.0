@@ -172,6 +172,7 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
                 onLoadsChange={b.setHybridLoads}
                 beamLength={b.beamLength}
                 supportPositions={b.supports.map((support) => support.position)}
+                displayUnits={b.displayUnits}
               />
               <div>
                 <BeamNumberField

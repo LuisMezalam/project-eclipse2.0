@@ -757,8 +757,19 @@ function distributedIntensityAt(load: LoadConfig, x: number, beamLength: number)
     }
     case 'trapezoidal':
     case 'parametric': {
-      const startIntensity = (load.startIntensity ?? load.intercept ?? load.intensity) * sign;
-      const endIntensity = (load.endIntensity ?? ((load.slope ?? 0) * beamLength + (load.intercept ?? load.intensity))) * sign;
+      // The endpoint values define the load shape; the main intensity input
+      // still controls its overall sign, just as it does for other load types.
+      const direction = sign * Math.sign(load.intensity);
+      const defaultMagnitude = Math.abs(load.intensity);
+      const intercept = load.intercept ?? defaultMagnitude;
+      const startShape = load.type === 'trapezoidal'
+        ? (load.startIntensity ?? defaultMagnitude)
+        : (load.startIntensity ?? intercept);
+      const endShape = load.type === 'trapezoidal'
+        ? (load.endIntensity ?? defaultMagnitude * 0.5)
+        : (load.endIntensity ?? ((load.slope ?? 0) * beamLength + intercept));
+      const startIntensity = startShape * direction;
+      const endIntensity = endShape * direction;
       return startIntensity + (endIntensity - startIntensity) * x / beamLength;
     }
     case 'parabolic':
@@ -768,6 +779,40 @@ function distributedIntensityAt(load: LoadConfig, x: number, beamLength: number)
     default:
       return intensity;
   }
+}
+
+/** Effective vertical load direction for diagrams (positive means downward). */
+export function getLoadDirectionSign(load: LoadConfig, beamLength = 1, positionRatio = 0.5): number {
+  const inversion = load.inverted ? -1 : 1;
+  const inputSign = Math.sign(load.intensity);
+  if (inputSign === 0) return 0;
+
+  let representedIntensity = load.intensity;
+  if (load.type === 'prestress') {
+    // Prestress is modeled as an equivalent uplift load.
+    representedIntensity = -load.intensity;
+  } else if (load.type === 'trapezoidal' || load.type === 'parametric') {
+    const defaultMagnitude = Math.abs(load.intensity);
+    const intercept = load.intercept ?? defaultMagnitude;
+    const startIntensity = load.type === 'trapezoidal'
+      ? (load.startIntensity ?? defaultMagnitude)
+      : (load.startIntensity ?? intercept);
+    const endIntensity = load.type === 'trapezoidal'
+      ? (load.endIntensity ?? defaultMagnitude * 0.5)
+      : (load.endIntensity ?? ((load.slope ?? 0) * beamLength + intercept));
+    representedIntensity = startIntensity + (endIntensity - startIntensity) * positionRatio;
+  }
+
+  if ((load.type === 'concentrated' || load.type === 'moving') && load.forceAngle) {
+    representedIntensity *= Math.cos(load.forceAngle * Math.PI / 180);
+  }
+
+  // Trapezoidal and parametric endpoints carry the load shape while the main
+  // intensity input supplies their shared direction sign.
+  const direction = load.type === 'trapezoidal' || load.type === 'parametric'
+    ? Math.sign(representedIntensity) * inputSign * inversion
+    : Math.sign(representedIntensity) * inversion;
+  return direction;
 }
 
 function isDistributedLoadType(type: LoadType): boolean {

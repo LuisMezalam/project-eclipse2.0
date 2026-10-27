@@ -1,4 +1,5 @@
 import { LoadType, BeamType, LoadConfig } from "@/lib/reliability";
+import { getLoadDirectionSign } from "@/lib/beamAnalysis";
 
 interface LoadTypeDiagramProps {
   loadType?: LoadType;
@@ -135,7 +136,7 @@ export function LoadTypeDiagram({ loadType, beamType, hybridLoads, beamLength = 
 
   const renderSingleLoad = (load: LoadConfig, colorIndex: number, yOffset: number = 0) => {
     const color = LOAD_COLORS[colorIndex % LOAD_COLORS.length];
-    const inv = load.inverted || false;
+    const inv = getLoadDirectionSign(load, beamLength) < 0;
     
     // For inverted loads, arrows come from below the beam
     const topY = inv ? beamY + 6 : 10 + yOffset;
@@ -516,8 +517,8 @@ export function LoadTypeDiagram({ loadType, beamType, hybridLoads, beamLength = 
   };
 
   // Check if any loads are inverted
-  const hasInvertedLoads = hybridLoads 
-    ? hybridLoads.some(l => l.inverted) 
+  const hasInvertedLoads = hybridLoads
+    ? hybridLoads.some((load) => getLoadDirectionSign(load, beamLength) < 0)
     : false;
 
   return (
@@ -561,7 +562,7 @@ export function LoadTypeDiagram({ loadType, beamType, hybridLoads, beamLength = 
                 className="w-3 h-3 rounded-sm" 
                 style={{ backgroundColor: LOAD_COLORS[index % LOAD_COLORS.length].fill, border: `1px solid ${LOAD_COLORS[index % LOAD_COLORS.length].stroke}` }}
               />
-              <span className="text-muted-foreground">L{index + 1}{load.inverted ? ' ↑' : ''}</span>
+              <span className="text-muted-foreground">L{index + 1}{getLoadDirectionSign(load, beamLength) < 0 ? ' ↑' : ''}</span>
             </div>
           ))}
         </div>

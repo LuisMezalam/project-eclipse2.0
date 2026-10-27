@@ -6,12 +6,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Plus, Trash2, Copy, ChevronDown, Play, Pause, RotateCcw, ArrowDownUp } from "lucide-react";
 import { LoadConfig, LoadType } from "@/lib/reliability";
+import { getLoadDirectionSign } from "@/lib/beamAnalysis";
 
 interface HybridLoadBuilderProps {
   loads: LoadConfig[];
   onLoadsChange: (loads: LoadConfig[]) => void;
   beamLength: number;
   supportPositions?: number[];
+  displayUnits: {
+    force: { factor: number; unit: string };
+    distForce: { factor: number; unit: string };
+    moment: { factor: number; unit: string };
+    length: { factor: number; unit: string };
+  };
 }
 
 const LOAD_TYPE_LABELS: Record<LoadType, string> = {
@@ -54,7 +61,7 @@ const LIVE_LOAD_PATTERNS: { value: LiveLoadPattern; label: string }[] = [
   { value: "vehicle-train", label: "Vehicle train (equivalent load)" },
 ];
 
-export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPositions = [] }: HybridLoadBuilderProps) {
+export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPositions = [], displayUnits }: HybridLoadBuilderProps) {
   const [selectedCombination, setSelectedCombination] = useState<string | null>(null);
   const [openLoadIndex, setOpenLoadIndex] = useState<number | null>(0);
   const [animatingLoadIndex, setAnimatingLoadIndex] = useState<number | null>(null);
@@ -167,11 +174,10 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
     setOpenLoadIndex(index + 1);
   };
 
-  const getLoadUnit = (type: LoadType) => {
-    if (type === 'support-settlement' || type === 'thermal-gradient') return 'kN-m';
-    if (type === 'moment') return 'kN·m';
-    if (type === 'concentrated' || type === 'moving' || type === 'axle-train' || type === 'torsional' || type === 'harmonic-equivalent') return 'kN';
-    return 'kN/m';
+  const getIntensityDisplay = (type: LoadType) => {
+    if (type === 'support-settlement' || type === 'thermal-gradient' || type === 'moment') return displayUnits.moment;
+    if (type === 'concentrated' || type === 'moving' || type === 'axle-train' || type === 'torsional' || type === 'harmonic-equivalent') return displayUnits.force;
+    return displayUnits.distForce;
   };
 
   const applyCombination = (combinationName: string) => {
@@ -179,6 +185,12 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
   };
 
   const renderLoadControls = (load: LoadConfig, index: number) => {
+    const intensityUnits = getIntensityDisplay(load.type);
+    const distributedFactor = displayUnits.distForce.factor;
+    const slopeFactor = distributedFactor / displayUnits.length.factor;
+    const lengthToDisplay = (meters: number) => meters * displayUnits.length.factor;
+    const lengthFromDisplay = (value: number) => value / displayUnits.length.factor;
+    const loadIsUpward = getLoadDirectionSign(load, beamLength) < 0;
     return (
       <div className="space-y-3 pt-3">
         <div className="grid grid-cols-2 gap-3">
@@ -205,12 +217,12 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">
-              Intensity ({getLoadUnit(load.type)})
+              Intensity ({intensityUnits.unit})
             </label>
             <Input
               type="number"
-              value={load.intensity / 1000}
-              onChange={(e) => updateLoad(index, { intensity: parseFloat(e.target.value) * 1000 || 0 })}
+              value={load.intensity * intensityUnits.factor}
+              onChange={(e) => updateLoad(index, { intensity: (parseFloat(e.target.value) || 0) / intensityUnits.factor })}
               className="bg-muted/30 h-8 text-xs"
             />
           </div>
@@ -219,15 +231,15 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
         {/* Type-specific controls */}
         {(load.type === 'concentrated' || load.type === 'moment' || load.type === 'torsional' || load.type === 'harmonic-equivalent' || load.type === 'support-settlement' || load.type === 'thermal-gradient') && (
           <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Position along beam (m)</label>
+            <label className="text-xs text-muted-foreground">Position along beam ({displayUnits.length.unit})</label>
             <Input
               type="number"
               min={0}
-              max={beamLength}
+              max={lengthToDisplay(beamLength)}
               step={0.01}
-              value={(load.position ?? 0.5) * beamLength}
+              value={lengthToDisplay((load.position ?? 0.5) * beamLength)}
               onChange={(e) => {
-                const position = Number(e.target.value);
+                const position = lengthFromDisplay(Number(e.target.value));
                 if (e.target.value !== "" && Number.isFinite(position)) updateLoad(index, { position: Math.max(0, Math.min(beamLength, position)) / beamLength });
               }}
               className="bg-muted/30 h-8 text-xs"
@@ -239,7 +251,7 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs text-muted-foreground">
-                Position: {((load.movingStep ?? 0.5) * beamLength).toFixed(2)}m
+                Position: {lengthToDisplay((load.movingStep ?? 0.5) * beamLength).toFixed(2)} {displayUnits.length.unit}
               </label>
               <div className="flex gap-1">
                 <Button
@@ -300,8 +312,8 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
               <span className="text-xs text-muted-foreground">°</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              P<sub>v</sub> = {(load.intensity / 1000 * Math.cos((load.forceAngle || 0) * Math.PI / 180)).toFixed(2)} kN | 
-              P<sub>h</sub> = {(load.intensity / 1000 * Math.sin((load.forceAngle || 0) * Math.PI / 180)).toFixed(2)} kN
+              P<sub>v</sub> = {((load.inverted ? -1 : 1) * load.intensity * displayUnits.force.factor * Math.cos((load.forceAngle || 0) * Math.PI / 180)).toFixed(2)} {displayUnits.force.unit} |
+              P<sub>h</sub> = {((load.inverted ? -1 : 1) * load.intensity * displayUnits.force.factor * Math.sin((load.forceAngle || 0) * Math.PI / 180)).toFixed(2)} {displayUnits.force.unit}
             </p>
           </div>
         )}
@@ -309,30 +321,30 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
         {(load.type === 'partial-udl' || load.type === 'patch' || load.type === 'prestress') && (
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-muted-foreground">Load start (m)</label>
+              <label className="text-xs text-muted-foreground">Load start ({displayUnits.length.unit})</label>
               <Input
                 type="number"
                 min={0}
-                max={((load.endPosition ?? 0.75) * beamLength)}
+                max={lengthToDisplay((load.endPosition ?? 0.75) * beamLength)}
                 step={0.01}
-                value={(load.startPosition ?? 0.25) * beamLength}
+                value={lengthToDisplay((load.startPosition ?? 0.25) * beamLength)}
                 onChange={(e) => {
-                  const position = Number(e.target.value);
+                  const position = lengthFromDisplay(Number(e.target.value));
                   if (e.target.value !== "" && Number.isFinite(position)) updateLoad(index, { startPosition: Math.max(0, Math.min((load.endPosition ?? 0.75) * beamLength, position)) / beamLength });
                 }}
                 className="bg-muted/30 h-8 text-xs"
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Load end (m)</label>
+              <label className="text-xs text-muted-foreground">Load end ({displayUnits.length.unit})</label>
               <Input
                 type="number"
-                min={((load.startPosition ?? 0.25) * beamLength)}
-                max={beamLength}
+                min={lengthToDisplay((load.startPosition ?? 0.25) * beamLength)}
+                max={lengthToDisplay(beamLength)}
                 step={0.01}
-                value={(load.endPosition ?? 0.75) * beamLength}
+                value={lengthToDisplay((load.endPosition ?? 0.75) * beamLength)}
                 onChange={(e) => {
-                  const position = Number(e.target.value);
+                  const position = lengthFromDisplay(Number(e.target.value));
                   if (e.target.value !== "" && Number.isFinite(position)) updateLoad(index, { endPosition: Math.max((load.startPosition ?? 0.25) * beamLength, Math.min(beamLength, position)) / beamLength });
                 }}
                 className="bg-muted/30 h-8 text-xs"
@@ -344,24 +356,24 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
         {load.type === 'trapezoidal' && (
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-muted-foreground">Start: {((load.startIntensity || 5000) / 1000).toFixed(1)} kN/m</label>
+              <label className="text-xs text-muted-foreground">Start: {((load.startIntensity ?? 5000) * distributedFactor).toFixed(2)} {displayUnits.distForce.unit}</label>
               <Slider
-                value={[load.startIntensity || 5000]}
-                onValueChange={([v]) => updateLoad(index, { startIntensity: v })}
-                min={1000}
-                max={20000}
-                step={500}
+                value={[(load.startIntensity ?? 5000) * distributedFactor]}
+                onValueChange={([v]) => updateLoad(index, { startIntensity: v / distributedFactor })}
+                min={1000 * distributedFactor}
+                max={20000 * distributedFactor}
+                step={500 * distributedFactor}
                 className="mt-1"
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">End: {((load.endIntensity || 2500) / 1000).toFixed(1)} kN/m</label>
+              <label className="text-xs text-muted-foreground">End: {((load.endIntensity ?? 2500) * distributedFactor).toFixed(2)} {displayUnits.distForce.unit}</label>
               <Slider
-                value={[load.endIntensity || 2500]}
-                onValueChange={([v]) => updateLoad(index, { endIntensity: v })}
-                min={1000}
-                max={20000}
-                step={500}
+                value={[(load.endIntensity ?? 2500) * distributedFactor]}
+                onValueChange={([v]) => updateLoad(index, { endIntensity: v / distributedFactor })}
+                min={1000 * distributedFactor}
+                max={20000 * distributedFactor}
+                step={500 * distributedFactor}
                 className="mt-1"
               />
             </div>
@@ -370,27 +382,27 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
 
         {load.type === 'parametric' && (
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">f(x) = mx + b (N/m)</p>
+            <p className="text-xs text-muted-foreground">f(x) = mx + b ({displayUnits.distForce.unit})</p>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs text-muted-foreground">m: {load.slope ?? 1000}</label>
+                <label className="text-xs text-muted-foreground">m: {((load.slope ?? 1000) * slopeFactor).toFixed(3)} {displayUnits.distForce.unit}/{displayUnits.length.unit}</label>
                 <Slider
-                  value={[load.slope ?? 1000]}
-                  onValueChange={([v]) => updateLoad(index, { slope: v })}
-                  min={-5000}
-                  max={5000}
-                  step={100}
+                  value={[(load.slope ?? 1000) * slopeFactor]}
+                  onValueChange={([v]) => updateLoad(index, { slope: v / slopeFactor })}
+                  min={-5000 * slopeFactor}
+                  max={5000 * slopeFactor}
+                  step={100 * slopeFactor}
                   className="mt-1"
                 />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">b: {load.intercept || 2000}</label>
+                <label className="text-xs text-muted-foreground">b: {((load.intercept ?? 2000) * distributedFactor).toFixed(2)} {displayUnits.distForce.unit}</label>
                 <Slider
-                  value={[load.intercept || 2000]}
-                  onValueChange={([v]) => updateLoad(index, { intercept: v })}
+                  value={[(load.intercept ?? 2000) * distributedFactor]}
+                  onValueChange={([v]) => updateLoad(index, { intercept: v / distributedFactor })}
                   min={0}
-                  max={10000}
-                  step={500}
+                  max={10000 * distributedFactor}
+                  step={500 * distributedFactor}
                   className="mt-1"
                 />
               </div>
@@ -400,7 +412,9 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
 
         {(load.type === 'triangular' || load.type === 'snow-drift' || load.type === 'hydrostatic') && (() => {
           const baseLen = ((load.triEndPosition ?? 1) - (load.triStartPosition ?? 0)) * beamLength;
-          const slopeAngle = baseLen > 0 ? Math.atan2(load.intensity / 1000, baseLen) * (180 / Math.PI) : 45;
+          const slopeAngle = baseLen > 0
+            ? Math.atan2(load.intensity * distributedFactor, lengthToDisplay(baseLen)) * (180 / Math.PI)
+            : 45;
           return (
           <div className="space-y-2">
             <div>
@@ -426,8 +440,8 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
                 value={[slopeAngle]}
                 onValueChange={([angle]) => {
                   const rad = Math.max(angle, 1) * Math.PI / 180;
-                  const desiredBase = (load.intensity / 1000) / Math.tan(rad);
-                  const ratio = Math.max(0.1, Math.min(1, desiredBase / beamLength));
+                  const desiredBase = (load.intensity * distributedFactor) / Math.tan(rad);
+                  const ratio = Math.max(0.1, Math.min(1, desiredBase / lengthToDisplay(beamLength)));
                   const peak = load.peakPosition || 0;
                   if (peak === 0) {
                     updateLoad(index, { triEndPosition: Math.min(1, (load.triStartPosition ?? 0) + ratio) });
@@ -443,7 +457,7 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
             </div>
             <div>
               <label className="text-xs text-muted-foreground">
-                Base: {((load.triStartPosition ?? 0) * beamLength).toFixed(2)}m to {((load.triEndPosition ?? 1) * beamLength).toFixed(2)}m
+                Base: {lengthToDisplay((load.triStartPosition ?? 0) * beamLength).toFixed(2)} {displayUnits.length.unit} to {lengthToDisplay((load.triEndPosition ?? 1) * beamLength).toFixed(2)} {displayUnits.length.unit}
               </label>
               <div className="grid grid-cols-2 gap-2 mt-1">
                 <div>
@@ -476,15 +490,17 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
         <div className="flex items-center justify-between pt-1">
           <label className="text-xs text-muted-foreground flex items-center gap-1">
             <ArrowDownUp className="h-3 w-3" />
-            Invert (upward)
+            Force direction
           </label>
           <Button
-            variant={load.inverted ? "default" : "outline"}
+            variant={loadIsUpward ? "default" : "outline"}
             size="sm"
             onClick={() => updateLoad(index, { inverted: !load.inverted })}
-            className="h-6 px-2 text-xs"
+            className="h-6 min-w-16 px-2 text-xs"
+            aria-label={loadIsUpward ? "Set downward force direction" : "Set upward force direction"}
+            title={loadIsUpward ? "Current direction: upward" : "Current direction: downward"}
           >
-            {load.inverted ? "↑" : "↓"}
+            {loadIsUpward ? "↑ Up" : "↓ Down"}
           </Button>
         </div>
       </div>
@@ -578,14 +594,14 @@ export function HybridLoadBuilder({ loads, onLoadsChange, beamLength, supportPos
                     </span>
                     <span className="text-sm text-foreground">{LOAD_TYPE_LABELS[load.type]}</span>
                     <span className="text-xs text-muted-foreground">
-                      ({(load.intensity / 1000).toFixed(1)} {getLoadUnit(load.type)})
+                      ({(load.intensity * getIntensityDisplay(load.type).factor).toFixed(1)} {getIntensityDisplay(load.type).unit})
                     </span>
                     {factor !== 1 && (
                       <span className="text-xs text-chart-posterior font-medium">
                         ×{factor}
                       </span>
                     )}
-                    {load.inverted && (
+                    {getLoadDirectionSign(load, beamLength) < 0 && (
                       <span className="text-xs text-chart-posterior font-medium">↑</span>
                     )}
                     {animatingLoadIndex === index && (
