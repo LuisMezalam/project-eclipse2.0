@@ -499,7 +499,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="E[g(X)] ≈ g(μX)"
                       latex="\mathbb{E}[g(X)] \approx g(\mu_X)"
                       description="Approximate mean of nonlinear function using linearization."
-                      usedIn={["Advanced"]}
+                      usedIn={["Math Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -507,7 +507,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="Var(g(X)) ≈ (∂g/∂x)² × Var(X)"
                       latex="\text{Var}(g(X)) \approx \left(\frac{\partial g}{\partial x}\right)^2 \text{Var}(X)"
                       description="Approximate variance propagation for nonlinear functions."
-                      usedIn={["Advanced"]}
+                      usedIn={["Math Library"]}
                       category="advanced"
                     />
                   </AccordionContent>
@@ -526,7 +526,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "p(data|θ)", meaning: "Likelihood" },
                         { symbol: "p(θ)", meaning: "Prior probability" }
                       ]}
-                      usedIn={["Inference", "MCMC"]}
+                      usedIn={["Inference", "Math Library"]}
                       category="core"
                     />
                     <Formula
@@ -551,7 +551,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "θ*", meaning: "Proposed state" },
                         { symbol: "q", meaning: "Proposal distribution" }
                       ]}
-                      usedIn={["MCMC"]}
+                      usedIn={["Math Library"]}
                       category="advanced"
                     />
                   </AccordionContent>
@@ -829,7 +829,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "Qᵢ", meaning: "Nominal load component" },
                         { symbol: "U", meaning: "Factored load effect" }
                       ]}
-                      usedIn={["Static Loads", "Advanced"]}
+                      usedIn={["Static Loads", "Math Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -850,7 +850,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       name="Advanced Static Load Families"
                       formula="load = {axle train, settlement, thermal, prestress, patch, torsion, snow drift, hydrostatic, construction stage, harmonic equivalent}"
                       description="Specialized loads routed through equivalent point, moment, triangular, partial distributed, or envelope models until deeper dedicated solvers are added."
-                      usedIn={["Static Loads", "Dynamic Loads", "Library"]}
+                      usedIn={["Static Loads", "Library"]}
                       category="specialized"
                     />
                   </AccordionContent>
@@ -959,7 +959,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="Pf,sys = 1 - ∏(1 - Pf,i)"
                       latex="P_{f,\text{sys}} = 1 - \prod_{i=1}^{n}(1 - P_{f,i})"
                       description="System fails if any component fails (weakest link)."
-                      usedIn={["Truss", "Advanced"]}
+                      usedIn={["Truss", "Math Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -967,7 +967,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="Pf,sys = ∏ Pf,i"
                       latex="P_{f,\text{sys}} = \prod_{i=1}^{n} P_{f,i}"
                       description="System fails only if all components fail (redundant)."
-                      usedIn={["Truss", "Advanced"]}
+                      usedIn={["Truss", "Math Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -1052,7 +1052,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "Gamma_k", meaning: "System/support stiffness modifier" },
                         { symbol: "Gamma_c", meaning: "Damping/excitation/isolation modifier" }
                       ]}
-                      usedIn={["Dynamic Loads", "Advanced"]}
+                      usedIn={["Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -1065,7 +1065,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "phi_i", meaning: "Mode shape" },
                         { symbol: "q_i(t)", meaning: "Modal coordinate" }
                       ]}
-                      usedIn={["Dynamic Loads"]}
+                      usedIn={["Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -1077,7 +1077,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "alpha_support", meaning: "Support stiffness factor" },
                         { symbol: "eta_support", meaning: "Support damping factor" }
                       ]}
-                      usedIn={["Dynamic Loads"]}
+                      usedIn={["Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -1089,7 +1089,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "alpha_excitation", meaning: "Excitation family load modifier" },
                         { symbol: "Omega", meaning: "Forcing circular frequency" }
                       ]}
-                      usedIn={["Dynamic Loads", "Random"]}
+                      usedIn={["Random", "Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -1101,7 +1101,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "x_max", meaning: "Maximum displacement response" },
                         { symbol: "Pf", meaning: "Probability of displacement limit failure" }
                       ]}
-                      usedIn={["Dynamic Loads", "Reports"]}
+                      usedIn={["Reports", "Library"]}
                       category="advanced"
                     />
                   </AccordionContent>
@@ -1373,7 +1373,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "f", meaning: "Objective function" },
                         { symbol: "βtarget", meaning: "Required reliability index" }
                       ]}
-                      usedIn={["Truss", "Advanced"]}
+                      usedIn={["Truss", "Math Library"]}
                       category="specialized"
                     />
                     <Formula
@@ -1384,7 +1384,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       variables={[
                         { symbol: "ρ", meaning: "Penalty parameter" }
                       ]}
-                      usedIn={["Truss", "Advanced"]}
+                      usedIn={["Truss", "Math Library"]}
                       category="specialized"
                     />
                     <Formula
@@ -1392,7 +1392,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="∂β/∂d ≈ (β(d+Δd) - β(d)) / Δd"
                       latex="\frac{\partial \beta}{\partial d} \approx \frac{\beta(d + \Delta d) - \beta(d)}{\Delta d}"
                       description="Finite difference approximation for gradient."
-                      usedIn={["Truss", "Advanced"]}
+                      usedIn={["Truss", "Math Library"]}
                       category="specialized"
                     />
                   </AccordionContent>
@@ -1410,7 +1410,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                         { symbol: "α", meaning: "Step size (learning rate)" },
                         { symbol: "∇f", meaning: "Gradient of objective" }
                       ]}
-                      usedIn={["Truss", "Advanced"]}
+                      usedIn={["Truss", "Math Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -1418,7 +1418,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="u(k+1) = (∇g·u - g) / |∇g|² × ∇g"
                       latex="\mathbf{u}^{(k+1)} = \frac{\nabla g \cdot \mathbf{u} - g}{|\nabla g|^2} \nabla g"
                       description="Hasofer-Lind, Rackwitz-Fiessler iteration for design point."
-                      usedIn={["Advanced"]}
+                      usedIn={["Math Library"]}
                       category="specialized"
                     />
                   </AccordionContent>
@@ -1432,7 +1432,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="αi² = (∂g/∂ui)² / Σ(∂g/∂uj)²"
                       latex="\alpha_i^2 = \frac{(\partial g / \partial u_i)^2}{\sum_j (\partial g / \partial u_j)^2}"
                       description="Fraction of variance attributable to variable i."
-                      usedIn={["Advanced"]}
+                      usedIn={["Math Library"]}
                       category="advanced"
                     />
                     <Formula
@@ -1440,7 +1440,7 @@ export const MathLibrary = ({ onSendToPf }: MathLibraryProps = {}) => {
                       formula="E = (∂β/∂p) × (p/β)"
                       latex="E = \frac{\partial \beta}{\partial p} \cdot \frac{p}{\beta}"
                       description="Percentage change in β for percentage change in parameter p."
-                      usedIn={["Advanced"]}
+                      usedIn={["Math Library"]}
                       category="advanced"
                     />
                   </AccordionContent>

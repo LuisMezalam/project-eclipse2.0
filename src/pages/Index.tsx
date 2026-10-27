@@ -1,18 +1,14 @@
 import { toast } from "sonner";
 import { DistributionChart } from "@/components/DistributionChart";
-import { MCMCVisualization } from "@/components/MCMCVisualization";
 import { GaussianProcessViz } from "@/components/GaussianProcessViz";
 import { BayesianInferenceViz } from "@/components/BayesianInferenceViz";
 import { ProbabilityOfFailure } from "@/components/ProbabilityOfFailure";
 import { StaticBeamAnalysis } from "@/components/StaticBeamAnalysis";
-import { DynamicLoadAnalysis } from "@/components/DynamicLoadAnalysis";
 import { StatisticalMomentAnalysis } from "@/components/StatisticalMomentAnalysis";
 import { TrussAnalysis } from "@/components/TrussAnalysis";
 import { StatisticalCrossReference } from "@/components/StatisticalCrossReference";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ExtremeValueDistributions } from "@/components/ExtremeValueDistributions";
-import { ResponseSpectrum } from "@/components/ResponseSpectrum";
-import { AdvancedReliabilityAnalysis } from "@/components/AdvancedReliabilityAnalysis";
 import { MathLibrary } from "@/components/MathLibrary";
 import { DecisionSupportWorkbench } from "@/components/DecisionSupportWorkbench";
 import { FormulaReferencePanel } from "@/components/FormulaReferencePanel";
@@ -23,7 +19,7 @@ import { SliderWithInput } from "@/components/SliderWithInput";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   SharedParametersProvider,
   useSharedParameters,
@@ -35,17 +31,22 @@ import {
   Ruler,
   Triangle,
   BarChart3,
-  Activity,
   PieChart,
-  Brain,
-  GitBranch,
-  Shield,
   BookOpen,
 } from "lucide-react";
+
+const visibleTabIds = new Set([
+  "reliability", "static", "truss", "moments", "distributions", "inference", "library",
+]);
 
 /** Inner component that consumes the shared context */
 function IndexContent() {
   const ctx = useSharedParameters();
+  const activeTab = visibleTabIds.has(ctx.activeTab) ? ctx.activeTab : "reliability";
+
+  useEffect(() => {
+    if (ctx.activeTab !== activeTab) ctx.setActiveTab(activeTab);
+  }, [activeTab, ctx.activeTab, ctx.setActiveTab]);
 
   // Distribution parameters (local — not shared across tabs)
   const [normalMu, setNormalMu] = useState(0);
@@ -85,7 +86,7 @@ function IndexContent() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 md:px-6 pb-12 md:pb-16">
-        <Tabs value={ctx.activeTab} onValueChange={ctx.setActiveTab} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={ctx.setActiveTab} className="space-y-6">
           {/* Navigation Tabs with Icons */}
           <TabsList className="nav-tabs w-full max-w-6xl mx-auto justify-start md:justify-center overflow-x-auto scrollbar-hide">
             <TabsTrigger value="reliability" className="nav-tab">
@@ -108,11 +109,6 @@ function IndexContent() {
               <span className="hidden sm:inline">Stat Moments</span>
               <span className="sm:hidden">Moments</span>
             </TabsTrigger>
-            <TabsTrigger value="dynamic" className="nav-tab">
-              <Activity className="nav-tab-icon" />
-              <span className="hidden sm:inline">Dynamic Loads</span>
-              <span className="sm:hidden">Dynamic</span>
-            </TabsTrigger>
             <TabsTrigger value="distributions" className="nav-tab">
               <PieChart className="nav-tab-icon" />
               <span className="hidden sm:inline">Distributions</span>
@@ -122,16 +118,6 @@ function IndexContent() {
               <Brain className="nav-tab-icon" />
               <span className="hidden sm:inline">Inference</span>
               <span className="sm:hidden">Bayes</span>
-            </TabsTrigger>
-            <TabsTrigger value="mcmc" className="nav-tab">
-              <GitBranch className="nav-tab-icon" />
-              <span className="hidden sm:inline">MCMC</span>
-              <span className="sm:hidden">MCMC</span>
-            </TabsTrigger>
-            <TabsTrigger value="advanced" className="nav-tab">
-              <Shield className="nav-tab-icon" />
-              <span className="hidden sm:inline">Advanced</span>
-              <span className="sm:hidden">Adv</span>
             </TabsTrigger>
             <TabsTrigger value="library" className="nav-tab">
               <BookOpen className="nav-tab-icon" />
@@ -173,7 +159,7 @@ function IndexContent() {
                 <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
                   <Link2 className="h-3 w-3 text-primary" />
                   <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                    → Pf, Static, Moments, Dynamic
+                    → Pf, Static, Moments
                   </span>
                 </div>
               </div>
@@ -321,23 +307,6 @@ function IndexContent() {
             <StatisticalMomentAnalysis />
           </TabsContent>
 
-          {/* Dynamic Analysis Tab */}
-          <TabsContent value="dynamic" className="animate-fade-in">
-            <div className="text-center mb-6 max-w-3xl mx-auto">
-              <h2 className="text-xl md:text-2xl font-semibold text-foreground mb-2">Dynamic Load Analysis</h2>
-              <p className="text-sm text-muted-foreground">
-                SDOF vibration, FEA discretization, random excitation dynamics, and civil engineering applications.
-              </p>
-              {ctx.isSynced && (
-                <div className="mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs">
-                  <Link2 className="h-3 w-3" /> Synced
-                </div>
-              )}
-            </div>
-            <FormulaReferencePanel tabId="dynamic" />
-            <DynamicLoadAnalysis />
-          </TabsContent>
-
           {/* Distributions Tab */}
           <TabsContent value="distributions" className="space-y-6 animate-fade-in">
             <div className="text-center mb-6 max-w-3xl mx-auto">
@@ -407,30 +376,6 @@ function IndexContent() {
             </div>
             <FormulaReferencePanel tabId="inference" />
             <BayesianInferenceViz />
-          </TabsContent>
-
-          {/* MCMC Tab */}
-          <TabsContent value="mcmc" className="animate-fade-in">
-            <div className="text-center mb-6 max-w-3xl mx-auto">
-              <h2 className="text-xl md:text-2xl font-semibold text-foreground mb-2">Metropolis-Hastings MCMC</h2>
-              <p className="text-sm text-muted-foreground">
-                Sample from complex posteriors to estimate higher-order moments for tail behavior analysis.
-              </p>
-            </div>
-            <FormulaReferencePanel tabId="mcmc" />
-            <MCMCVisualization />
-          </TabsContent>
-
-          {/* Advanced Reliability Tab */}
-          <TabsContent value="advanced" className="animate-fade-in">
-            <div className="text-center mb-6 max-w-3xl mx-auto">
-              <h2 className="text-xl md:text-2xl font-semibold text-foreground mb-2">Advanced Reliability Analysis</h2>
-              <p className="text-sm text-muted-foreground">
-                RBDO with Monte Carlo validation, sensitivity-driven adaptive sampling, time-dependent reliability, and system reliability for series/parallel structures.
-              </p>
-            </div>
-            <FormulaReferencePanel tabId="advanced" />
-            <AdvancedReliabilityAnalysis />
           </TabsContent>
 
           {/* Math Library Tab */}

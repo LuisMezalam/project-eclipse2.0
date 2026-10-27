@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Card } from "@/components/ui/card";
-import { ArrowRight, Link2, TrendingUp, Activity, BarChart3, Sigma } from "lucide-react";
+import { ArrowRight, Link2, TrendingUp, BarChart3, Sigma } from "lucide-react";
 import { normalCDF } from "@/lib/reliability";
 
 interface CrossReferenceProps {
@@ -46,10 +46,6 @@ export function StatisticalCrossReference({
     const beta = (resistanceMean - stressMean) / Math.sqrt(resistanceStdDev * resistanceStdDev + stressVariance);
     const pf = normalCDF(-beta);
     
-    // Dynamic effects: natural frequency affected by mass distribution (2nd moment)
-    // Higher variance in mass → lower effective stiffness
-    const dynamicAmplification = 1 + 0.1 * (loadVariance / (loadMean * loadMean));
-    
     // Skewness effect: asymmetric load distribution shifts critical point
     const criticalPointShift = loadSkewness * beamLength * 0.05;
     
@@ -71,7 +67,6 @@ export function StatisticalCrossReference({
       stressStdDev,
       beta,
       pf,
-      dynamicAmplification,
       criticalPointShift,
       extremeEventMultiplier,
       adjustedPf,
@@ -97,15 +92,6 @@ export function StatisticalCrossReference({
       description: "Stress variance enters reliability calculation",
       value: `β = ${crossEffects.beta.toFixed(3)} → Pf = ${(crossEffects.pf * 100).toFixed(4)}%`,
       color: "text-accent",
-    },
-    {
-      from: "Stat Moments",
-      to: "Dynamic Loads",
-      icon: <Activity className="h-4 w-4" />,
-      formula: "DAF ∝ 1 + Var(m)/μ²",
-      description: "Mass distribution variance affects dynamic response",
-      value: `DAF factor = ${crossEffects.dynamicAmplification.toFixed(3)}`,
-      color: "text-chart-2",
     },
     {
       from: "Skewness (M₃)",
@@ -144,7 +130,7 @@ export function StatisticalCrossReference({
       </div>
       <p className="text-sm text-muted-foreground mb-6">
         Based on Meza (2025), statistical moments (M₁-M₄) propagate through all structural analyses. 
-        Changes to load distribution parameters affect beam response, reliability, and dynamic behavior simultaneously.
+        Changes to load distribution parameters affect beam response, reliability, and truss forces.
       </p>
 
       {/* Current Parameters Summary */}
@@ -200,7 +186,6 @@ export function StatisticalCrossReference({
           <div className="flex flex-col gap-1">
             <div className="px-3 py-1 rounded bg-chart-2/20 text-chart-2 font-medium">Beam Response</div>
             <div className="px-3 py-1 rounded bg-chart-4/20 text-chart-4 font-medium">Truss Forces</div>
-            <div className="px-3 py-1 rounded bg-destructive/20 text-destructive font-medium">Dynamic DAF</div>
           </div>
           <ArrowRight className="h-4 w-4 text-muted-foreground" />
           <div className="px-3 py-2 rounded bg-destructive/20 text-destructive font-medium">Reliability β, P<sub>f</sub></div>

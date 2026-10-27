@@ -15,7 +15,6 @@ import { useSharedParameters } from "@/contexts/SharedParametersContext";
 
 import {
   ReliabilityMetricsGrid,
-  DistributionOverlapChart,
   MonteCarloPanel,
   FORMEquations,
 } from "./reliability";
@@ -160,8 +159,6 @@ export function ProbabilityOfFailure() {
           </div>
         </div>
       </div>
-
-      <DistributionOverlapChart meanR={meanR} covR={covR} meanS={meanS} covS={covS} />
 
       <MonteCarloPanel meanR={meanR} covR={covR} meanS={meanS} covS={covS}
         formResult={result} mcResults={mcResults} onMcComplete={setMcResults} />
