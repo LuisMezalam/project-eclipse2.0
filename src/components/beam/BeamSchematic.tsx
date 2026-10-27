@@ -332,43 +332,88 @@ export function BeamSchematic({
 
         {/* Dynamic supports */}
         {supports.map((support, idx) => {
+          const position = Math.min(1, Math.max(0, support.position));
+          // Match the beam's 32px end insets exactly, so supports stay on the
+          // beam when the schematic is resized or a support is moved.
+          const left = `calc(32px + ${position * 100}% - ${position * 64}px)`;
+          const supportName = support.type === "hinge" ? "Grounded hinge" : support.type;
+          const markerClass = "absolute z-10 animate-support-marker transition-[left] duration-300 ease-out motion-reduce:animate-none";
+
           if (support.type === "fixed") {
             return (
-              <div key={idx} className="absolute top-1/2 w-4 h-16 bg-muted-foreground/40 -translate-y-1/2"
-                style={{ left: support.position === 0 ? "4px" : support.position === 1 ? "auto" : `calc(${support.position * 100}% - 2px)`, right: support.position === 1 ? "4px" : "auto" }} />
-            );
-          } else if (support.type === "pin") {
-            return (
-              <div key={idx} className="absolute bottom-3 flex flex-col items-center"
-                style={{ left: `calc(32px + ${support.position * (100 - 16)}%)`, transform: "translateX(-50%)" }}>
-                <svg width="20" height="16" viewBox="0 0 20 16">
-                  <polygon points="10,0 0,14 20,14" fill="none" stroke="hsl(var(--accent))" strokeWidth="2" />
-                  <line x1="0" y1="16" x2="20" y2="16" stroke="hsl(var(--accent))" strokeWidth="2" />
-                </svg>
-              </div>
-            );
-          } else if (support.type === "roller") {
-            return (
-              <div key={idx} className="absolute bottom-3 flex flex-col items-center"
-                style={{ left: `calc(32px + ${support.position * (100 - 16)}%)`, transform: "translateX(-50%)" }}>
-                <svg width="20" height="18" viewBox="0 0 20 18">
-                  <polygon points="10,0 0,10 20,10" fill="none" stroke="hsl(var(--accent))" strokeWidth="2" />
-                  <circle cx="5" cy="14" r="3" fill="none" stroke="hsl(var(--accent))" strokeWidth="1.5" />
-                  <circle cx="15" cy="14" r="3" fill="none" stroke="hsl(var(--accent))" strokeWidth="1.5" />
-                </svg>
-              </div>
-            );
-          } else if (support.type === "hinge") {
-            return (
-              <div key={idx} className="absolute bottom-4 flex flex-col items-center"
-                style={{ left: `calc(32px + ${support.position * (100 - 16)}%)`, transform: "translateX(-50%)" }}>
-                <svg width="16" height="16" viewBox="0 0 16 16">
-                  <circle cx="8" cy="8" r="6" fill="none" stroke="hsl(var(--chart-posterior))" strokeWidth="2" />
-                  <circle cx="8" cy="8" r="2" fill="hsl(var(--chart-posterior))" />
+              <div
+                key={`${support.type}-${idx}`}
+                className={`${markerClass} left-0 top-1/2 -translate-x-1/2 -translate-y-1/2`}
+                style={{ left }}
+                role="img"
+                aria-label={`Support ${idx + 1}: fixed`}
+                title={`Support ${idx + 1}: Fixed`}
+              >
+                <svg width="24" height="34" viewBox="0 0 24 34" aria-hidden="true">
+                  <rect x="10" y="1" width="5" height="32" rx="1" fill="hsl(var(--muted-foreground) / 0.45)" />
+                  {[4, 10, 16, 22, 28].map((y) => (
+                    <line key={y} x1="2" y1={y + 3} x2="10" y2={y - 3} stroke="hsl(var(--muted-foreground))" strokeWidth="1.2" />
+                  ))}
                 </svg>
               </div>
             );
           }
+
+          if (support.type === "pin" || support.type === "roller") {
+            return (
+              <div
+                key={`${support.type}-${idx}`}
+                className={`${markerClass} left-0 top-[calc(50%+7px)] -translate-x-1/2`}
+                style={{ left }}
+                role="img"
+                aria-label={`Support ${idx + 1}: ${supportName}`}
+                title={`Support ${idx + 1}: ${supportName}`}
+              >
+                {support.type === "pin" ? (
+                  <svg width="24" height="25" viewBox="0 0 24 25" aria-hidden="true">
+                    <polygon points="12,0 2,15 22,15" fill="hsl(var(--accent) / 0.12)" stroke="hsl(var(--accent))" strokeWidth="1.8" />
+                    <line x1="1" y1="17" x2="23" y2="17" stroke="hsl(var(--accent))" strokeWidth="1.6" />
+                    {[4, 10, 16, 22].map((x) => (
+                      <line key={x} x1={x - 2} y1="23" x2={x + 2} y2="19" stroke="hsl(var(--accent))" strokeWidth="1" />
+                    ))}
+                  </svg>
+                ) : (
+                  <svg width="26" height="34" viewBox="0 0 26 34" aria-hidden="true">
+                    <polygon points="13,0 3,13 23,13" fill="hsl(var(--accent) / 0.12)" stroke="hsl(var(--accent))" strokeWidth="1.8" />
+                    <circle cx="8" cy="17" r="3" fill="hsl(var(--background))" stroke="hsl(var(--accent))" strokeWidth="1.5" />
+                    <circle cx="18" cy="17" r="3" fill="hsl(var(--background))" stroke="hsl(var(--accent))" strokeWidth="1.5" />
+                    <line x1="1" y1="22" x2="25" y2="22" stroke="hsl(var(--accent))" strokeWidth="1.6" />
+                    {[4, 10, 16, 22].map((x) => (
+                      <line key={x} x1={x - 2} y1="29" x2={x + 2} y2="25" stroke="hsl(var(--accent))" strokeWidth="1" />
+                    ))}
+                  </svg>
+                )}
+              </div>
+            );
+          }
+
+          if (support.type === "hinge") {
+            return (
+              <div
+                key={`${support.type}-${idx}`}
+                className={`${markerClass} left-0 top-[calc(50%-10px)] -translate-x-1/2`}
+                style={{ left }}
+                role="img"
+                aria-label={`Support ${idx + 1}: grounded hinge`}
+                title={`Support ${idx + 1}: Grounded hinge`}
+              >
+                <svg width="26" height="38" viewBox="0 0 26 38" aria-hidden="true">
+                  <circle cx="13" cy="9" r="4.5" fill="hsl(var(--background))" stroke="hsl(var(--chart-posterior))" strokeWidth="1.8" />
+                  <polygon points="13,15 3,29 23,29" fill="hsl(var(--chart-posterior) / 0.12)" stroke="hsl(var(--chart-posterior))" strokeWidth="1.8" />
+                  <line x1="1" y1="31" x2="25" y2="31" stroke="hsl(var(--chart-posterior))" strokeWidth="1.5" />
+                  {[5, 11, 17, 23].map((x) => (
+                    <line key={x} x1={x - 2} y1="37" x2={x + 2} y2="33" stroke="hsl(var(--chart-posterior))" strokeWidth="1" />
+                  ))}
+                </svg>
+              </div>
+            );
+          }
+
           return null;
         })}
 

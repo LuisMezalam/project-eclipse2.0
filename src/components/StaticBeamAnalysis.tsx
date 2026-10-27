@@ -9,7 +9,7 @@
 import { AIRecommendations } from "./AIRecommendations";
 import {
   useBeamAnalysis, BeamConfigPanel,
-  BeamSchematic, BeamResultsGrid, BeamValidationPanel, ReliabilityPanel,
+  BeamSchematic, BeamResultsGrid, SupportReactionsPanel, BeamValidationPanel, ReliabilityPanel,
   ShearMomentDiagrams, DeflectionCurve, CrossSectionPropertiesDisplay,
   EnvelopeDiagrams, InfluenceLines } from
 "./beam";
@@ -77,6 +77,15 @@ export function StaticBeamAnalysis() {
         beamLength={b.beamLength}
         displayUnits={du}
         composite={Boolean(b.compositeSection || b.laminateSection)}
+      />
+
+      <SupportReactionsPanel
+        supportReactions={b.supportReactions}
+        supports={b.supports}
+        beamLength={b.beamLength}
+        appliedLoad={b.beamResult.totalLoad}
+        displayUnits={du}
+        supportFallback={b.supportFallback}
       />
 
       <ReliabilityPanel reliability={b.reliability} beamResult={b.beamResult}

@@ -1,6 +1,7 @@
 // Barrel export for beam sub-components
 export { BeamSchematic } from "./BeamSchematic";
 export { BeamResultsGrid } from "./BeamResultsGrid";
+export { SupportReactionsPanel } from "./SupportReactionsPanel";
 export { BeamValidationPanel } from "./BeamValidationPanel";
 export { ReliabilityPanel } from "./ReliabilityPanel";
 export { ShearMomentDiagrams } from "./ShearMomentDiagrams";

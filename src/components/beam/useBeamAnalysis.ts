@@ -708,6 +708,7 @@ export function useBeamAnalysis() {
     // Computed
     loadConfig, effectiveLoadConfig, effectiveHybridLoads, effectiveBeamType,
     beamResult, reliability, validation, diagramData, influenceData, envelopeData,
+    supportReactions: beamSolution.supportReactions,
     supportFallback: beamSolution.supportFallback,
     hasMovingLoad, loadMarkers, influenceEffects, loadContributions,
     // Export

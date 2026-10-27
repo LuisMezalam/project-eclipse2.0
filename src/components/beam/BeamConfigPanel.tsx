@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Play, Pause, RotateCcw, Layers, Settings2, ArrowDownUp } from "lucide-react";
 import { BeamNumberField } from "./BeamNumberField";
 import { CrossSectionDiagram } from "../CrossSectionDiagram";
-import { LoadTypeDiagram } from "../LoadTypeDiagram";
 import { HybridLoadBuilder } from "../HybridLoadBuilder";
 import { ExportButton } from "../ExportButton";
 import { getLoadDirectionSign } from "@/lib/beamAnalysis";
@@ -185,11 +184,6 @@ export function BeamConfigPanel({ b }: BeamConfigPanelProps) {
                   onChange={(v) => b.setBeamLength(b.convertLengthFromDisplay(v))}
                 />
               </div>
-              {b.hybridLoads.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-border/30">
-                  <LoadTypeDiagram beamType={b.beamType} hybridLoads={b.hybridLoads} beamLength={b.beamLength} />
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -526,9 +520,6 @@ function SingleLoadControls({ b }: { b: BeamHook }) {
         </div>
       )}
 
-      <div className="mt-4 pt-4 border-t border-border/30">
-        <LoadTypeDiagram beamType={b.beamType} hybridLoads={[b.loadConfig]} beamLength={b.beamLength} />
-      </div>
     </>
   );
 }
